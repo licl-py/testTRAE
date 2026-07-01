@@ -1,79 +1,372 @@
-import json
-from flask import Flask, render_template, request, Response, jsonify, stream_with_context
-from ollama import Client
+﻿import json
+import os
+import re
+import smtplib
+import threading
+import time
+from datetime import datetime
+from email.message import EmailMessage
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import requests
+from flask import Flask, jsonify, render_template, request, Response, stream_with_context
 
 app = Flask(__name__)
-
-DEFAULT_HOST = 'http://10.245.100.186:12434'
-DEFAULT_MODEL = 'qwen3.5:27b'
-
-
-def create_translation_prompt(text: str) -> str:
-    return f"""你是一个翻译工具，要做中英互译。请检测以下文本的语言：
-{text}
-
-如果文本是中文，请翻译成英文；如果是英文，请翻译成中文。你的回答只能包含翻译结果，不能包含其他任何内容。"""
+ROOT = Path(__file__).resolve().parent
+CONFIG_FILE = ROOT / "monitor_config.json"
+STATE_FILE = ROOT / "monitor_state.json"
+EVENTS: List[Dict[str, Any]] = []
+EVENT_LOCK = threading.Lock()
+DEFAULT_CHECK_INTERVAL = 60
+DEFAULT_EMAIL_TO = "licl45@lenovo.com"
 
 
-def translate_stream(client: Client, text: str, model: str):
-    prompt = create_translation_prompt(text)
-    messages = [
-        {"role": "system", "content": "你是一个专业的中英互译助手。"},
-        {"role": "user", "content": prompt}
+def load_json(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+
+def save_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def ensure_files() -> None:
+    if not CONFIG_FILE.exists():
+        save_json(CONFIG_FILE, {"projects": []})
+    if not STATE_FILE.exists():
+        save_json(STATE_FILE, {"projects": {}})
+
+
+def push_event(event_type: str, payload: Dict[str, Any]) -> None:
+    with EVENT_LOCK:
+        EVENTS.append({"type": event_type, "time": datetime.utcnow().isoformat() + "Z", "payload": payload})
+        if len(EVENTS) > 200:
+            EVENTS.pop(0)
+
+
+def parse_github_repo(repo_url: str) -> Optional[tuple]:
+    match = re.search(r"github\.com[:/]+([^/]+)/([^/]+?)(?:\.git)?$", repo_url)
+    if not match:
+        return None
+    return match.group(1), match.group(2)
+
+
+def github_api_get(path: str, token: Optional[str] = None) -> Dict[str, Any]:
+    headers = {"Accept": "application/vnd.github.v3+json"}
+    if token:
+        headers["Authorization"] = f"token {token}"
+    response = requests.get(f"https://api.github.com{path}", headers=headers, timeout=15)
+    response.raise_for_status()
+    return response.json()
+
+
+def get_remote_commit_sha(owner: str, repo: str, branch: str, token: Optional[str] = None) -> Optional[str]:
+    payload = github_api_get(f"/repos/{owner}/{repo}/commits/{branch}", token)
+    return payload.get("sha")
+
+
+def compare_commits(owner: str, repo: str, base: str, head: str, token: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    if base == head:
+        return None
+    return github_api_get(f"/repos/{owner}/{repo}/compare/{base}...{head}", token)
+
+
+def send_email(subject: str, content: str, recipients: List[str], from_address: Optional[str] = None) -> None:
+    smtp_host = os.environ.get("SMTP_HOST")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_user = os.environ.get("SMTP_USER")
+    smtp_pass = os.environ.get("SMTP_PASS")
+    use_tls = os.environ.get("SMTP_USE_TLS", "true").lower() not in ("false", "0", "no")
+    use_ssl = os.environ.get("SMTP_USE_SSL", "false").lower() in ("true", "1", "yes") or smtp_port == 465
+
+    if not smtp_host or not smtp_user or not smtp_pass:
+        raise RuntimeError("SMTP_HOST, SMTP_USER, and SMTP_PASS must be configured to send email.")
+
+    sender = from_address or os.environ.get("MONITOR_EMAIL_FROM", smtp_user)
+    recipients = recipients if isinstance(recipients, list) else [recipients]
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = sender
+    msg["To"] = ", ".join(recipients)
+    msg.set_content(content)
+
+    if use_ssl:
+        server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30)
+    else:
+        server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
+        server.ehlo()
+        if use_tls:
+            server.starttls()
+            server.ehlo()
+    server.login(smtp_user, smtp_pass)
+    server.send_message(msg)
+    server.quit()
+
+
+def send_sms(message: str, phones: List[str]) -> None:
+    gateway = os.environ.get("SMS_GATEWAY_URL")
+    api_key = os.environ.get("SMS_API_KEY")
+    if not gateway or not api_key or not phones:
+        return
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    for phone in phones:
+        try:
+            requests.post(gateway, json={"to": phone, "message": message}, headers=headers, timeout=15)
+        except Exception:
+            pass
+
+
+def build_report(project: Dict[str, Any], comparison: Dict[str, Any], last_sha: str, current_sha: str) -> str:
+    files = comparison.get("files", [])
+    commits = comparison.get("commits", [])
+    added = [f["filename"] for f in files if f.get("status") == "added"]
+    modified = [f["filename"] for f in files if f.get("status") == "modified"]
+    deleted = [f["filename"] for f in files if f.get("status") == "removed"]
+
+    lines = [
+        f"Project: {project.get('name')}",
+        f"Repository: {project.get('repo_url')}",
+        f"Branch: {project.get('branch')}",
+        f"Previous commit: {last_sha}",
+        f"Current commit: {current_sha}",
+        "",
     ]
 
-    try:
-        stream = client.chat(
-            model=model,
-            stream=True,
-            messages=messages,
-            options={
-                'temperature': 0.1,
-                'num_predict': 8192,
-                'top_p': 0.9,
-                'presence_penalty': 0.1,
-                'frequency_penalty': 0.1,
-                'num_ctx': 32768
-            },
-            keep_alive=-1
-        )
+    if commits:
+        lines.append("Commits:")
+        for commit in commits:
+            author = commit.get("commit", {}).get("author", {}).get("name", "unknown")
+            message = commit.get("commit", {}).get("message", "").splitlines()[0]
+            lines.append(f"- {commit.get('sha')[:7]} | {author} | {message}")
+        lines.append("")
 
-        for chunk in stream:
-            content = chunk['message']['content']
-            yield f"data: {json.dumps({'content': content}, ensure_ascii=False)}\n\n"
+    if added:
+        lines.append("Added files:")
+        lines.extend([f"- {path}" for path in added])
+        lines.append("")
+    if modified:
+        lines.append("Modified files:")
+        lines.extend([f"- {path}" for path in modified])
+        lines.append("")
+    if deleted:
+        lines.append("Deleted files:")
+        lines.extend([f"- {path}" for path in deleted])
+        lines.append("")
 
-        yield "data: [DONE]\n\n"
-
-    except Exception as e:
-        yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
-
-
-@app.route('/')
-def index():
-    return render_template('index.html')
+    lines.append("Note: deleted files are tracked and included in alerts, but they are not suggested for restoration unless required.")
+    return "\n".join(lines)
 
 
-@app.route('/api/translate', methods=['POST'])
-def translate():
-    data = request.get_json()
-    text = data.get('text', '').strip()
-    host = data.get('host', DEFAULT_HOST)
-    model = data.get('model', DEFAULT_MODEL)
-
-    if not text:
-        return jsonify({'error': '请输入要翻译的文本'}), 400
-
-    client = Client(host=host)
-    return Response(
-        stream_with_context(translate_stream(client, text, model)),
-        mimetype='text/event-stream'
-    )
+def evaluate_alert(project: Dict[str, Any], metrics: Dict[str, Any]) -> bool:
+    thresholds = project.get("alert_thresholds", {})
+    if metrics["new_commits"] >= thresholds.get("new_commits", 1):
+        return True
+    if metrics["added_files"] >= thresholds.get("added_files", 0):
+        return True
+    if metrics["modified_files"] >= thresholds.get("modified_files", 0):
+        return True
+    if metrics["deleted_files"] >= thresholds.get("deleted_files", 0):
+        return True
+    return False
 
 
-@app.route('/api/health', methods=['GET'])
-def health():
-    return jsonify({'status': 'ok'})
+def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token: Optional[str] = None) -> Dict[str, Any]:
+    result: Dict[str, Any] = {"status": "unknown", "last_check": datetime.utcnow().isoformat() + "Z"}
+    repo_info = parse_github_repo(project.get("repo_url", ""))
+    if not repo_info:
+        result["status"] = "invalid_repo"
+        result["error"] = "Unsupported repo URL"
+        return result
+
+    owner, repo = repo_info
+    branch = project.get("branch", "master")
+    current_sha = get_remote_commit_sha(owner, repo, branch, token=token)
+    if not current_sha:
+        result["status"] = "commit_not_found"
+        result["error"] = "Failed to read remote commit"
+        return result
+
+    last_sha = project_state.get("last_commit")
+    result["last_commit"] = current_sha
+    result["new_commits"] = 0
+    result["added_files"] = 0
+    result["modified_files"] = 0
+    result["deleted_files"] = 0
+    result["files"] = {"added": [], "modified": [], "deleted": []}
+    result["alert_sent"] = False
+
+    if not last_sha:
+        result["status"] = "baseline_initialized"
+        return result
+
+    if last_sha == current_sha:
+        result["status"] = "no_changes"
+        return result
+
+    comparison = compare_commits(owner, repo, last_sha, current_sha, token=token)
+    if not comparison:
+        result["status"] = "compare_failed"
+        result["error"] = "Comparison request failed"
+        return result
+
+    files = comparison.get("files", [])
+    result["new_commits"] = len(comparison.get("commits", []))
+    result["added_files"] = len([f for f in files if f.get("status") == "added"])
+    result["modified_files"] = len([f for f in files if f.get("status") == "modified"])
+    result["deleted_files"] = len([f for f in files if f.get("status") == "removed"])
+    result["files"] = {
+        "added": [f["filename"] for f in files if f.get("status") == "added"],
+        "modified": [f["filename"] for f in files if f.get("status") == "modified"],
+        "deleted": [f["filename"] for f in files if f.get("status") == "removed"],
+    }
+    result["status"] = "changed"
+
+    if evaluate_alert(project, result):
+        report = build_report(project, comparison, last_sha, current_sha)
+        subject = f"[Monitor Alert] {project.get('name')} {branch} changed"
+        try:
+            recipients = project.get("email_recipients") or [os.environ.get("MONITOR_EMAIL_TO", DEFAULT_EMAIL_TO)]
+            if isinstance(recipients, str):
+                recipients = [recipients]
+            send_email(subject, report, recipients)
+            sms_recipients = project.get("sms_recipients", [])
+            if sms_recipients:
+                send_sms(report, sms_recipients)
+            result["alert_sent"] = True
+        except Exception as exc:
+            result["alert_error"] = str(exc)
+
+    return result
 
 
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+def monitor_loop() -> None:
+    while True:
+        ensure_files()
+        config = load_json(CONFIG_FILE, {"projects": []})
+        state = load_json(STATE_FILE, {"projects": {}})
+        token = os.environ.get("GITHUB_TOKEN")
+        now = datetime.utcnow().timestamp()
+        updated = False
+
+        for project in config.get("projects", []):
+            project_id = project.get("id")
+            if not project_id:
+                continue
+            interval = int(project.get("check_interval", DEFAULT_CHECK_INTERVAL))
+            project_state = state.get("projects", {}).get(project_id, {})
+            last_check = project_state.get("last_check")
+            if last_check:
+                elapsed = now - datetime.fromisoformat(last_check.replace("Z", "")).timestamp()
+            else:
+                elapsed = interval + 1
+            if elapsed < interval:
+                continue
+
+            result = check_project(project, project_state, token=token)
+            state.setdefault("projects", {})[project_id] = {**project_state, **result}
+            save_json(STATE_FILE, state)
+            push_event("project_update", {"project_id": project_id, "result": result})
+            updated = True
+
+        time.sleep(5 if not updated else 2)
+
+
+@app.route("/")
+def index() -> str:
+    return render_template("index.html")
+
+
+@app.route("/api/health", methods=["GET"])
+def health() -> Any:
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/projects", methods=["GET", "POST"])
+def api_projects() -> Any:
+    ensure_files()
+    config = load_json(CONFIG_FILE, {"projects": []})
+    if request.method == "POST":
+        project = request.get_json() or {}
+        if not project.get("id"):
+            return jsonify({"error": "Project id is required"}), 400
+        projects = [p for p in config.get("projects", []) if p.get("id") != project["id"]]
+        projects.append(project)
+        config["projects"] = projects
+        save_json(CONFIG_FILE, config)
+        push_event("config_change", {"project_id": project["id"], "action": "saved"})
+        return jsonify(project), 201
+    return jsonify(config.get("projects", []))
+
+
+@app.route("/api/projects/<project_id>", methods=["PUT", "DELETE"])
+def api_project_detail(project_id: str) -> Any:
+    ensure_files()
+    config = load_json(CONFIG_FILE, {"projects": []})
+    projects = [p for p in config.get("projects", []) if p.get("id") != project_id]
+    if request.method == "DELETE":
+        config["projects"] = projects
+        save_json(CONFIG_FILE, config)
+        push_event("config_change", {"project_id": project_id, "action": "deleted"})
+        return jsonify({"status": "deleted"})
+
+    project = request.get_json() or {}
+    project["id"] = project_id
+    projects.append(project)
+    config["projects"] = projects
+    save_json(CONFIG_FILE, config)
+    push_event("config_change", {"project_id": project_id, "action": "updated"})
+    return jsonify(project)
+
+
+@app.route("/api/state", methods=["GET"])
+def api_state() -> Any:
+    ensure_files()
+    state = load_json(STATE_FILE, {"projects": {}})
+    return jsonify(state.get("projects", {}))
+
+
+@app.route("/api/check/<project_id>", methods=["POST"])
+def api_check_project(project_id: str) -> Any:
+    ensure_files()
+    config = load_json(CONFIG_FILE, {"projects": []})
+    project = next((p for p in config.get("projects", []) if p.get("id") == project_id), None)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    state = load_json(STATE_FILE, {"projects": {}})
+    project_state = state.get("projects", {}).get(project_id, {})
+    result = check_project(project, project_state, token=os.environ.get("GITHUB_TOKEN"))
+    state.setdefault("projects", {})[project_id] = {**project_state, **result}
+    save_json(STATE_FILE, state)
+    push_event("project_update", {"project_id": project_id, "result": result})
+    return jsonify(result)
+
+
+@app.route("/api/events")
+def api_events() -> Response:
+    def event_stream():
+        last = 0
+        while True:
+            with EVENT_LOCK:
+                events = EVENTS[last:]
+                last = len(EVENTS)
+            for event in events:
+                yield f"event: update\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+            time.sleep(1)
+
+    return Response(stream_with_context(event_stream()), mimetype="text/event-stream")
+
+
+if __name__ == "__main__":
+    ensure_files()
+    monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
+    monitor_thread.start()
+    app.run(host="0.0.0.0", port=5000)

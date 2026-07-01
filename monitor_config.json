@@ -1,0 +1,15 @@
+{
+  "projects": [
+    {
+      "id": "project1",
+      "name": "testTRAE",
+      "repo_url": "https://github.com/licl-py/testTRAE.git",
+      "branch": "master",
+      "check_interval": 60,
+      "email_recipients": [
+        "licl45@lenovo.com"
+      ],
+      "sms_recipients": []
+    }
+  ]
+}

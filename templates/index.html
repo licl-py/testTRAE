@@ -1,438 +1,413 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>中英互译工具</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GitHub 仓库监控服务</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-                'Microsoft YaHei', sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: #f3f4f6;
+            color: #1f2937;
         }
 
-        .container {
-            width: 100%;
-            max-width: 800px;
-            background: #ffffff;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
-            padding: 40px;
+        .page {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
         }
 
         .header {
-            text-align: center;
-            margin-bottom: 32px;
+            margin-bottom: 24px;
         }
 
         .header h1 {
-            font-size: 28px;
-            color: #2d3748;
+            font-size: 32px;
             margin-bottom: 8px;
         }
 
         .header p {
-            color: #718096;
-            font-size: 14px;
+            color: #4b5563;
         }
 
-        .settings {
-            display: flex;
-            gap: 16px;
+        .panel {
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+            padding: 24px;
             margin-bottom: 24px;
-            flex-wrap: wrap;
         }
 
-        .settings-group {
-            flex: 1;
-            min-width: 200px;
+        .panel h2 {
+            margin-top: 0;
+            font-size: 20px;
         }
 
-        .settings-group label {
+        .grid {
+            display: grid;
+            gap: 16px;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        }
+
+        label {
             display: block;
-            font-size: 13px;
-            color: #4a5568;
-            margin-bottom: 6px;
-            font-weight: 500;
-        }
-
-        .settings-group input {
-            width: 100%;
-            padding: 10px 14px;
-            border: 2px solid #e2e8f0;
-            border-radius: 10px;
-            font-size: 14px;
-            color: #2d3748;
-            transition: border-color 0.2s;
-            outline: none;
-        }
-
-        .settings-group input:focus {
-            border-color: #667eea;
-        }
-
-        .input-area {
-            margin-bottom: 20px;
-        }
-
-        .input-area label {
-            display: block;
-            font-size: 14px;
-            color: #4a5568;
             margin-bottom: 8px;
-            font-weight: 500;
+            color: #374151;
+            font-weight: 600;
         }
 
-        .input-area textarea {
+        input,
+        textarea {
             width: 100%;
-            height: 180px;
-            padding: 16px;
-            border: 2px solid #e2e8f0;
+            border: 1px solid #d1d5db;
             border-radius: 12px;
-            font-size: 15px;
-            color: #2d3748;
+            padding: 12px;
+            font-size: 14px;
+            color: #111827;
+            background: #f9fafb;
+        }
+
+        textarea {
+            min-height: 120px;
             resize: vertical;
-            outline: none;
-            transition: border-color 0.2s;
-            font-family: inherit;
-            line-height: 1.6;
         }
 
-        .input-area textarea:focus {
-            border-color: #667eea;
-        }
-
-        .btn-row {
+        .actions {
             display: flex;
             gap: 12px;
-            margin-bottom: 24px;
+            flex-wrap: wrap;
+            margin-top: 12px;
         }
 
-        .btn {
-            flex: 1;
-            padding: 14px 24px;
+        button {
             border: none;
             border-radius: 12px;
-            font-size: 16px;
-            font-weight: 600;
+            padding: 12px 20px;
+            font-size: 14px;
             cursor: pointer;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
         }
 
         .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #2563eb;
             color: #ffffff;
         }
 
-        .btn-primary:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn-primary:active {
-            transform: translateY(0);
-        }
-
-        .btn-primary:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-
         .btn-secondary {
-            background: #edf2f7;
-            color: #4a5568;
+            background: #e5e7eb;
+            color: #111827;
         }
 
-        .btn-secondary:hover {
-            background: #e2e8f0;
+        .table-wrapper {
+            overflow-x: auto;
         }
 
-        .result-area {
-            display: none;
-        }
-
-        .result-area.visible {
-            display: block;
-        }
-
-        .result-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 10px;
-        }
-
-        .result-header label {
-            font-size: 14px;
-            color: #4a5568;
-            font-weight: 500;
-        }
-
-        .copy-btn {
-            padding: 6px 16px;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            background: #ffffff;
-            color: #4a5568;
-            font-size: 13px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .copy-btn:hover {
-            background: #edf2f7;
-        }
-
-        .copy-btn.copied {
-            background: #c6f6d5;
-            border-color: #9ae6b4;
-            color: #276749;
-        }
-
-        .result-box {
+        table {
             width: 100%;
-            min-height: 120px;
-            padding: 16px;
-            background: #f7fafc;
-            border: 2px solid #e2e8f0;
-            border-radius: 12px;
-            font-size: 15px;
-            color: #2d3748;
-            line-height: 1.6;
-            white-space: pre-wrap;
-            word-break: break-word;
+            border-collapse: collapse;
         }
 
-        .result-box.error {
-            color: #c53030;
-            background: #fff5f5;
-            border-color: #feb2b2;
+        th,
+        td {
+            text-align: left;
+            padding: 14px 12px;
+            border-bottom: 1px solid #e5e7eb;
         }
 
-        .spinner {
-            display: inline-block;
-            width: 18px;
-            height: 18px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-top-color: #ffffff;
-            border-radius: 50%;
-            animation: spin 0.6s linear infinite;
+        th {
+            color: #111827;
+            background: #f9fafb;
+            font-weight: 700;
         }
 
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
+        tr:hover {
+            background: #f3f4f6;
         }
 
-        .char-count {
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 9999px;
             font-size: 12px;
-            color: #a0aec0;
-            text-align: right;
-            margin-top: 4px;
+            font-weight: 700;
         }
 
-        @media (max-width: 600px) {
-            .container {
-                padding: 24px;
-                border-radius: 16px;
-            }
-            .header h1 {
-                font-size: 22px;
-            }
-            .btn {
-                font-size: 14px;
-                padding: 12px 18px;
-            }
+        .badge-ok {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .badge-warn {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .badge-error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: rgba(31, 41, 55, 0.95);
+            color: #ffffff;
+            padding: 16px 20px;
+            border-radius: 14px;
+            box-shadow: 0 20px 40px rgba(15, 23, 42, 0.2);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+
+        .toast.visible {
+            opacity: 1;
+            pointer-events: auto;
         }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="page">
         <div class="header">
-            <h1>🌐 中英互译工具</h1>
-            <p>基于 Ollama AI 的智能翻译 · 自动检测语言方向</p>
+            <h1>GitHub 仓库监控服务</h1>
+            <p>管理多个项目、自动检查远程仓库更新，并支持邮件/SMS 警报。</p>
         </div>
 
-        <div class="settings">
-            <div class="settings-group">
-                <label for="host">Ollama 服务地址</label>
-                <input type="text" id="host" value="http://10.245.100.186:12434" placeholder="http://host:port">
+        <div class="panel">
+            <h2>项目配置</h2>
+            <div class="grid">
+                <div>
+                    <label for="projectId">项目 ID</label>
+                    <input id="projectId" placeholder="唯一标识，如 project-1" />
+                </div>
+                <div>
+                    <label for="projectName">项目名称</label>
+                    <input id="projectName" placeholder="显示名称" />
+                </div>
+                <div>
+                    <label for="repoUrl">GitHub 仓库 URL</label>
+                    <input id="repoUrl" placeholder="https://github.com/owner/repo.git" />
+                </div>
+                <div>
+                    <label for="branch">分支</label>
+                    <input id="branch" placeholder="master 或 main" />
+                </div>
+                <div>
+                    <label for="checkInterval">检查间隔 (秒)</label>
+                    <input id="checkInterval" type="number" min="10" placeholder="60" />
+                </div>
+                <div>
+                    <label for="emailRecipients">邮件接收人</label>
+                    <input id="emailRecipients" placeholder="a@example.com,b@example.com" />
+                </div>
+                <div class="full-width">
+                    <label for="smsRecipients">短信接收人</label>
+                    <input id="smsRecipients" placeholder="+8613712345678, ..." />
+                </div>
             </div>
-            <div class="settings-group">
-                <label for="model">模型名称</label>
-                <input type="text" id="model" value="qwen3.5:27b" placeholder="qwen3.5:27b">
+            <div class="actions">
+                <button class="btn btn-primary" onclick="saveProject()">保存项目</button>
+                <button class="btn btn-secondary" onclick="clearForm()">重置表单</button>
+                <button class="btn btn-secondary" onclick="loadProjects()">刷新项目</button>
             </div>
         </div>
 
-        <div class="input-area">
-            <label for="inputText">输入文本</label>
-            <textarea id="inputText" placeholder="请输入要翻译的文本，支持中文或英文..."></textarea>
-            <div class="char-count"><span id="charCount">0</span> 字符</div>
-        </div>
-
-        <div class="btn-row">
-            <button class="btn btn-primary" id="translateBtn" onclick="doTranslate()">
-                <span id="btnText">开始翻译</span>
-                <span class="spinner" id="btnSpinner" style="display:none"></span>
-            </button>
-            <button class="btn btn-secondary" onclick="clearAll()">清空</button>
-        </div>
-
-        <div class="result-area" id="resultArea">
-            <div class="result-header">
-                <label>翻译结果</label>
-                <button class="copy-btn" id="copyBtn" onclick="copyResult()">📋 复制</button>
+        <div class="panel">
+            <h2>当前项目列表</h2>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>名称</th>
+                            <th>仓库</th>
+                            <th>分支</th>
+                            <th>状态</th>
+                            <th>上次检查</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="projectTable"></tbody>
+                </table>
             </div>
-            <div class="result-box" id="resultBox"></div>
+        </div>
+
+        <div class="panel">
+            <h2>服务状态</h2>
+            <p>事件流自动更新项目状态，触发检查或保存后可看到最新结果。</p>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>项目 ID</th>
+                            <th>状态</th>
+                            <th>新增提交</th>
+                            <th>新增</th>
+                            <th>修改</th>
+                            <th>删除</th>
+                            <th>警报</th>
+                        </tr>
+                    </thead>
+                    <tbody id="stateTable"></tbody>
+                </table>
+            </div>
         </div>
     </div>
 
+    <div id="toast" class="toast"></div>
+
     <script>
-        const inputText = document.getElementById('inputText');
-        const resultArea = document.getElementById('resultArea');
-        const resultBox = document.getElementById('resultBox');
-        const translateBtn = document.getElementById('translateBtn');
-        const btnText = document.getElementById('btnText');
-        const btnSpinner = document.getElementById('btnSpinner');
-        const copyBtn = document.getElementById('copyBtn');
-        const charCount = document.getElementById('charCount');
+        const projectTable = document.getElementById('projectTable');
+        const stateTable = document.getElementById('stateTable');
+        const toast = document.getElementById('toast');
 
-        inputText.addEventListener('input', () => {
-            charCount.textContent = inputText.value.length;
-        });
-
-        inputText.addEventListener('keydown', (e) => {
-            if (e.ctrlKey && e.key === 'Enter') {
-                doTranslate();
-            }
-        });
-
-        function setLoading(loading) {
-            translateBtn.disabled = loading;
-            btnText.style.display = loading ? 'none' : 'inline';
-            btnSpinner.style.display = loading ? 'inline-block' : 'none';
+        async function loadProjects() {
+            const response = await fetch('/api/projects');
+            const projects = await response.json();
+            projectTable.innerHTML = projects.map(project => {
+                return `
+                    <tr>
+                        <td>${project.id || ''}</td>
+                        <td>${project.name || ''}</td>
+                        <td>${project.repo_url || ''}</td>
+                        <td>${project.branch || ''}</td>
+                        <td>${project.check_interval || ''}</td>
+                        <td>${project.email_recipients || ''}</td>
+                        <td>
+                            <button class="btn btn-secondary" onclick="editProject('${project.id}')">编辑</button>
+                            <button class="btn btn-secondary" onclick="deleteProject('${project.id}')">删除</button>
+                            <button class="btn btn-secondary" onclick="checkProject('${project.id}')">检查</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
         }
 
-        async function doTranslate() {
-            const text = inputText.value.trim();
-            if (!text) {
-                alert('请输入要翻译的文本');
+        async function loadState() {
+            const response = await fetch('/api/state');
+            const state = await response.json();
+            stateTable.innerHTML = Object.entries(state).map(([projectId, projectState]) => {
+                const badgeClass = projectState.alert_sent ? 'badge-error' : projectState.status === 'changed' ? 'badge-warn' : 'badge-ok';
+                return `
+                    <tr>
+                        <td>${projectId}</td>
+                        <td><span class="badge ${badgeClass}">${projectState.status || 'unknown'}</span></td>
+                        <td>${projectState.new_commits || 0}</td>
+                        <td>${projectState.added_files || 0}</td>
+                        <td>${projectState.modified_files || 0}</td>
+                        <td>${projectState.deleted_files || 0}</td>
+                        <td>${projectState.alert_sent ? '是' : '否'}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function showToast(message) {
+            toast.textContent = message;
+            toast.classList.add('visible');
+            setTimeout(() => toast.classList.remove('visible'), 3000);
+        }
+
+        function clearForm() {
+            document.getElementById('projectId').value = '';
+            document.getElementById('projectName').value = '';
+            document.getElementById('repoUrl').value = '';
+            document.getElementById('branch').value = '';
+            document.getElementById('checkInterval').value = '';
+            document.getElementById('emailRecipients').value = '';
+            document.getElementById('smsRecipients').value = '';
+        }
+
+        function editProject(id) {
+            fetch('/api/projects')
+                .then(r => r.json())
+                .then(projects => {
+                    const project = projects.find(item => item.id === id);
+                    if (!project) return;
+                    document.getElementById('projectId').value = project.id || '';
+                    document.getElementById('projectName').value = project.name || '';
+                    document.getElementById('repoUrl').value = project.repo_url || '';
+                    document.getElementById('branch').value = project.branch || '';
+                    document.getElementById('checkInterval').value = project.check_interval || '';
+                    document.getElementById('emailRecipients').value = Array.isArray(project.email_recipients) ? project.email_recipients.join(',') : project.email_recipients || '';
+                    document.getElementById('smsRecipients').value = Array.isArray(project.sms_recipients) ? project.sms_recipients.join(',') : project.sms_recipients || '';
+                });
+        }
+
+        async function saveProject() {
+            const project = {
+                id: document.getElementById('projectId').value.trim(),
+                name: document.getElementById('projectName').value.trim(),
+                repo_url: document.getElementById('repoUrl').value.trim(),
+                branch: document.getElementById('branch').value.trim() || 'master',
+                check_interval: Number(document.getElementById('checkInterval').value) || 60,
+                email_recipients: document.getElementById('emailRecipients').value.split(',').map(x => x.trim()).filter(Boolean),
+                sms_recipients: document.getElementById('smsRecipients').value.split(',').map(x => x.trim()).filter(Boolean),
+            };
+
+            if (!project.id || !project.repo_url) {
+                showToast('请填写项目 ID 和仓库 URL');
                 return;
             }
 
-            const host = document.getElementById('host').value.trim();
-            const model = document.getElementById('model').value.trim();
-
-            resultArea.classList.add('visible');
-            resultBox.textContent = '';
-            resultBox.classList.remove('error');
-            setLoading(true);
-
-            try {
-                const response = await fetch('/api/translate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text, host, model })
-                });
-
-                if (!response.ok) {
-                    const err = await response.json();
-                    throw new Error(err.error || '请求失败');
-                }
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop() || '';
-
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const data = line.slice(6);
-                            if (data === '[DONE]') continue;
-
-                            try {
-                                const parsed = JSON.parse(data);
-                                if (parsed.error) {
-                                    resultBox.textContent = parsed.error;
-                                    resultBox.classList.add('error');
-                                } else if (parsed.content) {
-                                    resultBox.textContent += parsed.content;
-                                }
-                            } catch (e) {
-                                // 忽略解析错误
-                            }
-                        }
-                    }
-                }
-            } catch (err) {
-                resultBox.textContent = '翻译出错: ' + err.message;
-                resultBox.classList.add('error');
-            } finally {
-                setLoading(false);
+            const response = await fetch('/api/projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(project)
+            });
+            if (!response.ok) {
+                const data = await response.json();
+                showToast(data.error || '保存失败');
+                return;
             }
+            showToast('项目配置已保存');
+            await loadProjects();
+            await loadState();
+            clearForm();
         }
 
-        async function copyResult() {
-            const text = resultBox.textContent;
-            if (!text) return;
-
-            try {
-                await navigator.clipboard.writeText(text);
-                copyBtn.textContent = '✅ 已复制';
-                copyBtn.classList.add('copied');
-                setTimeout(() => {
-                    copyBtn.textContent = '📋 复制';
-                    copyBtn.classList.remove('copied');
-                }, 2000);
-            } catch (e) {
-                // 降级方案
-                const ta = document.createElement('textarea');
-                ta.value = text;
-                document.body.appendChild(ta);
-                ta.select();
-                document.execCommand('copy');
-                document.body.removeChild(ta);
-                copyBtn.textContent = '✅ 已复制';
-                copyBtn.classList.add('copied');
-                setTimeout(() => {
-                    copyBtn.textContent = '📋 复制';
-                    copyBtn.classList.remove('copied');
-                }, 2000);
+        async function deleteProject(id) {
+            const response = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+            if (!response.ok) {
+                showToast('删除失败');
+                return;
             }
+            showToast('项目已删除');
+            await loadProjects();
+            await loadState();
         }
 
-        function clearAll() {
-            inputText.value = '';
-            charCount.textContent = '0';
-            resultBox.textContent = '';
-            resultBox.classList.remove('error');
-            resultArea.classList.remove('visible');
+        async function checkProject(id) {
+            const response = await fetch(`/api/check/${id}`, { method: 'POST' });
+            if (!response.ok) {
+                showToast('检查请求失败');
+                return;
+            }
+            const result = await response.json();
+            showToast(`检查完成: ${result.status}`);
+            await loadState();
         }
+
+        function setupEvents() {
+            const eventSource = new EventSource('/api/events');
+            eventSource.onmessage = async () => {
+                await loadState();
+            };
+            eventSource.onerror = () => {
+                console.warn('事件流已断开，稍后将自动重连');
+            };
+        }
+
+        loadProjects();
+        loadState();
+        setupEvents();
     </script>
 </body>
 </html>
