@@ -4,6 +4,7 @@ import re
 import smtplib
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
@@ -16,10 +17,13 @@ app = Flask(__name__)
 ROOT = Path(__file__).resolve().parent
 CONFIG_FILE = ROOT / "monitor_config.json"
 STATE_FILE = ROOT / "monitor_state.json"
+MAIL_LOG_FILE = ROOT / "mail_log.json"
 ENV_FILE = ROOT / ".env"
 EXAMPLE_ENV_FILE = ROOT / "monitor_env.example"
 EVENTS: List[Dict[str, Any]] = []
 EVENT_LOCK = threading.Lock()
+MONITOR_THREAD_STARTED = False
+MONITOR_THREAD_LOCK = threading.Lock()
 DEFAULT_CHECK_INTERVAL = 60
 DEFAULT_EMAIL_TO = "licl45@lenovo.com"
 
@@ -67,6 +71,8 @@ def ensure_files() -> None:
         save_json(CONFIG_FILE, {"projects": []})
     if not STATE_FILE.exists():
         save_json(STATE_FILE, {"projects": {}})
+    if not MAIL_LOG_FILE.exists():
+        save_json(MAIL_LOG_FILE, {"logs": []})
 
 
 def push_event(event_type: str, payload: Dict[str, Any]) -> None:
@@ -203,8 +209,32 @@ def evaluate_alert(project: Dict[str, Any], metrics: Dict[str, Any]) -> bool:
     return False
 
 
+def log_mail(recipient_list: List[str], subject: str, body: str, status: str, error: Optional[str] = None) -> None:
+    log = load_json(MAIL_LOG_FILE, {"logs": []})
+    log_entry = {
+        "id": str(uuid.uuid4()),
+        "time": datetime.now(timezone.utc).isoformat(),
+        "recipients": recipient_list,
+        "subject": subject,
+        "body": body,
+        "status": status,
+        "error": error,
+    }
+    log["logs"].insert(0, log_entry)
+    save_json(MAIL_LOG_FILE, log)
+
+
 def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token: Optional[str] = None) -> Dict[str, Any]:
-    result: Dict[str, Any] = {"status": "unknown", "last_check": datetime.now(timezone.utc).isoformat()}
+    result: Dict[str, Any] = {
+        "status": "unknown",
+        "last_check": datetime.now(timezone.utc).isoformat(),
+        "monitor_enabled": project.get("monitor_enabled", True),
+    }
+
+    if not project.get("monitor_enabled", True):
+        result["status"] = "paused"
+        return result
+
     repo_info = parse_github_repo(project.get("repo_url", ""))
     if not repo_info:
         result["status"] = "invalid_repo"
@@ -257,19 +287,33 @@ def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token:
     if evaluate_alert(project, result):
         report = build_report(project, comparison, last_sha, current_sha)
         subject = f"[Monitor Alert] {project.get('name')} {branch} changed"
+        recipients = project.get("email_recipients") or [os.environ.get("MONITOR_EMAIL_TO", DEFAULT_EMAIL_TO)]
+        if isinstance(recipients, str):
+            recipients = [recipients]
         try:
-            recipients = project.get("email_recipients") or [os.environ.get("MONITOR_EMAIL_TO", DEFAULT_EMAIL_TO)]
-            if isinstance(recipients, str):
-                recipients = [recipients]
             send_email(subject, report, recipients)
             sms_recipients = project.get("sms_recipients", [])
             if sms_recipients:
                 send_sms(report, sms_recipients)
             result["alert_sent"] = True
+            log_mail(recipients, subject, report, "sent")
         except Exception as exc:
             result["alert_error"] = str(exc)
+            log_mail(recipients, subject, report, "failed", str(exc))
+    else:
+        log_mail([os.environ.get("MONITOR_EMAIL_TO", DEFAULT_EMAIL_TO)], f"[Monitor Notice] {project.get('name')} {branch} check completed", "No email sent because no change was detected.", "skipped")
 
     return result
+
+
+def start_monitor_thread() -> None:
+    global MONITOR_THREAD_STARTED
+    with MONITOR_THREAD_LOCK:
+        if MONITOR_THREAD_STARTED:
+            return
+        monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
+        monitor_thread.start()
+        MONITOR_THREAD_STARTED = True
 
 
 def monitor_loop() -> None:
@@ -278,7 +322,7 @@ def monitor_loop() -> None:
         config = load_json(CONFIG_FILE, {"projects": []})
         state = load_json(STATE_FILE, {"projects": {}})
         token = os.environ.get("GITHUB_TOKEN")
-        now = datetime.utcnow().timestamp()
+        now = datetime.now(timezone.utc).timestamp()
         updated = False
 
         for project in config.get("projects", []):
@@ -289,7 +333,7 @@ def monitor_loop() -> None:
             project_state = state.get("projects", {}).get(project_id, {})
             last_check = project_state.get("last_check")
             if last_check:
-                elapsed = now - datetime.fromisoformat(last_check.replace("Z", "")).timestamp()
+                elapsed = now - datetime.fromisoformat(last_check.replace("Z", "+00:00")).timestamp()
             else:
                 elapsed = interval + 1
             if elapsed < interval:
@@ -306,6 +350,7 @@ def monitor_loop() -> None:
 
 @app.route("/")
 def index() -> str:
+    start_monitor_thread()
     return render_template("index.html")
 
 
@@ -322,6 +367,8 @@ def api_projects() -> Any:
         project = request.get_json() or {}
         if not project.get("id"):
             return jsonify({"error": "Project id is required"}), 400
+        project["monitor_enabled"] = project.get("monitor_enabled", True)
+        project["check_interval"] = int(project.get("check_interval", DEFAULT_CHECK_INTERVAL))
         projects = [p for p in config.get("projects", []) if p.get("id") != project["id"]]
         projects.append(project)
         config["projects"] = projects
@@ -344,6 +391,8 @@ def api_project_detail(project_id: str) -> Any:
 
     project = request.get_json() or {}
     project["id"] = project_id
+    project["monitor_enabled"] = project.get("monitor_enabled", True)
+    project["check_interval"] = int(project.get("check_interval", DEFAULT_CHECK_INTERVAL))
     projects.append(project)
     config["projects"] = projects
     save_json(CONFIG_FILE, config)
@@ -356,6 +405,27 @@ def api_state() -> Any:
     ensure_files()
     state = load_json(STATE_FILE, {"projects": {}})
     return jsonify(state.get("projects", {}))
+
+
+@app.route("/api/mail_logs", methods=["GET", "DELETE"])
+def api_mail_logs() -> Any:
+    ensure_files()
+    mail_log = load_json(MAIL_LOG_FILE, {"logs": []})
+    if request.method == "DELETE":
+        save_json(MAIL_LOG_FILE, {"logs": []})
+        push_event("mail_logs_cleared", {})
+        return jsonify({"status": "cleared"})
+    return jsonify(mail_log.get("logs", []))
+
+
+@app.route("/api/mail_logs/<log_id>", methods=["DELETE"])
+def api_mail_log_detail(log_id: str) -> Any:
+    ensure_files()
+    mail_log = load_json(MAIL_LOG_FILE, {"logs": []})
+    logs = [entry for entry in mail_log.get("logs", []) if entry.get("id") != log_id]
+    save_json(MAIL_LOG_FILE, {"logs": logs})
+    push_event("mail_log_deleted", {"log_id": log_id})
+    return jsonify({"status": "deleted"})
 
 
 @app.route("/api/check/<project_id>", methods=["POST"])
@@ -392,7 +462,6 @@ def api_events() -> Response:
 if __name__ == "__main__":
     ensure_env_loaded()
     ensure_files()
-    monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
-    monitor_thread.start()
+    start_monitor_thread()
     app.run(host="0.0.0.0", port=5000)
-    
+

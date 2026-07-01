@@ -2,8 +2,8 @@
   "projects": {
     "project1": {
       "status": "no_changes",
-      "last_check": "2026-07-01T09:34:55.213241Z",
-      "last_commit": "bebce397c72cbf7422920038f168d6ed5971315e",
+      "last_check": "2026-07-01T09:58:01.235009+00:00",
+      "last_commit": "7e736ca8a05e44dbd97e66f8a1e288cf8c09825f",
       "new_commits": 0,
       "added_files": 0,
       "modified_files": 0,
@@ -14,7 +14,8 @@
         "deleted": []
       },
       "alert_sent": false,
-      "alert_error": "SMTP_HOST, SMTP_USER, and SMTP_PASS must be configured to send email."
+      "alert_error": "Connection unexpectedly closed",
+      "monitor_enabled": true
     }
   }
 }

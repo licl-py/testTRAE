@@ -47,7 +47,28 @@
         .grid {
             display: grid;
             gap: 16px;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            align-items: start;
+        }
+
+        .grid.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .grid > div {
+            min-width: 0;
+        }
+
+        input,
+        textarea {
+            width: 100%;
+            box-sizing: border-box;
+            border: 1px solid #d1d5db;
+            border-radius: 12px;
+            padding: 12px;
+            font-size: 14px;
+            color: #111827;
+            background: #f9fafb;
         }
 
         label {
@@ -55,6 +76,20 @@
             margin-bottom: 8px;
             color: #374151;
             font-weight: 600;
+        }
+
+        .inline-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .inline-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
         }
 
         input,
@@ -204,6 +239,13 @@
                     <input id="checkInterval" type="number" min="10" placeholder="60" />
                 </div>
                 <div>
+                    <label for="monitorEnabled">监控启用</label>
+                    <div class="inline-checkbox">
+                        <input id="monitorEnabled" type="checkbox" />
+                        <span>启用</span>
+                    </div>
+                </div>
+                <div>
                     <label for="emailRecipients">邮件接收人</label>
                     <input id="emailRecipients" placeholder="a@example.com,b@example.com" />
                 </div>
@@ -229,8 +271,8 @@
                             <th>名称</th>
                             <th>仓库</th>
                             <th>分支</th>
-                            <th>状态</th>
-                            <th>上次检查</th>
+                            <th>间隔</th>
+                            <th>启用</th>
                             <th>操作</th>
                         </tr>
                     </thead>
@@ -253,9 +295,33 @@
                             <th>修改</th>
                             <th>删除</th>
                             <th>警报</th>
+                            <th>上次检查</th>
                         </tr>
                     </thead>
                     <tbody id="stateTable"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>邮件发送记录</h2>
+            <div class="actions">
+                <button class="btn btn-secondary" onclick="clearMailLogs()">清空日志</button>
+                <button class="btn btn-secondary" onclick="loadMailLogs()">刷新日志</button>
+            </div>
+            <div class="table-wrapper" style="margin-top: 16px;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>时间</th>
+                            <th>主题</th>
+                            <th>收件人</th>
+                            <th>状态</th>
+                            <th>错误</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mailLogTable"></tbody>
                 </table>
             </div>
         </div>
@@ -266,6 +332,7 @@
     <script>
         const projectTable = document.getElementById('projectTable');
         const stateTable = document.getElementById('stateTable');
+        const mailLogTable = document.getElementById('mailLogTable');
         const toast = document.getElementById('toast');
 
         async function loadProjects() {
@@ -279,7 +346,7 @@
                         <td>${project.repo_url || ''}</td>
                         <td>${project.branch || ''}</td>
                         <td>${project.check_interval || ''}</td>
-                        <td>${project.email_recipients || ''}</td>
+                        <td>${project.monitor_enabled ? '是' : '否'}</td>
                         <td>
                             <button class="btn btn-secondary" onclick="editProject('${project.id}')">编辑</button>
                             <button class="btn btn-secondary" onclick="deleteProject('${project.id}')">删除</button>
@@ -304,6 +371,7 @@
                         <td>${projectState.modified_files || 0}</td>
                         <td>${projectState.deleted_files || 0}</td>
                         <td>${projectState.alert_sent ? '是' : '否'}</td>
+                        <td>${projectState.last_check ? new Date(projectState.last_check).toLocaleString() : '-'}</td>
                     </tr>
                 `;
             }).join('');
@@ -321,6 +389,7 @@
             document.getElementById('repoUrl').value = '';
             document.getElementById('branch').value = '';
             document.getElementById('checkInterval').value = '';
+            document.getElementById('monitorEnabled').checked = true;
             document.getElementById('emailRecipients').value = '';
             document.getElementById('smsRecipients').value = '';
         }
@@ -336,6 +405,7 @@
                     document.getElementById('repoUrl').value = project.repo_url || '';
                     document.getElementById('branch').value = project.branch || '';
                     document.getElementById('checkInterval').value = project.check_interval || '';
+                    document.getElementById('monitorEnabled').checked = project.monitor_enabled !== false;
                     document.getElementById('emailRecipients').value = Array.isArray(project.email_recipients) ? project.email_recipients.join(',') : project.email_recipients || '';
                     document.getElementById('smsRecipients').value = Array.isArray(project.sms_recipients) ? project.sms_recipients.join(',') : project.sms_recipients || '';
                 });
@@ -348,6 +418,7 @@
                 repo_url: document.getElementById('repoUrl').value.trim(),
                 branch: document.getElementById('branch').value.trim() || 'master',
                 check_interval: Number(document.getElementById('checkInterval').value) || 60,
+                monitor_enabled: document.getElementById('monitorEnabled').checked,
                 email_recipients: document.getElementById('emailRecipients').value.split(',').map(x => x.trim()).filter(Boolean),
                 sms_recipients: document.getElementById('smsRecipients').value.split(',').map(x => x.trim()).filter(Boolean),
             };
@@ -384,6 +455,47 @@
             await loadState();
         }
 
+        async function loadMailLogs() {
+            const response = await fetch('/api/mail_logs');
+            if (!response.ok) {
+                mailLogTable.innerHTML = '<tr><td colspan="6">无法加载日志</td></tr>';
+                return;
+            }
+            const logs = await response.json();
+            mailLogTable.innerHTML = logs.map(entry => {
+                return `
+                    <tr>
+                        <td>${new Date(entry.time).toLocaleString()}</td>
+                        <td>${entry.subject || ''}</td>
+                        <td>${(entry.recipients || []).join(', ')}</td>
+                        <td>${entry.status || ''}</td>
+                        <td>${entry.error || ''}</td>
+                        <td><button class="btn btn-secondary" onclick="deleteMailLog('${entry.id}')">删除</button></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function clearMailLogs() {
+            const response = await fetch('/api/mail_logs', { method: 'DELETE' });
+            if (!response.ok) {
+                showToast('清空日志失败');
+                return;
+            }
+            showToast('邮件日志已清空');
+            await loadMailLogs();
+        }
+
+        async function deleteMailLog(id) {
+            const response = await fetch(`/api/mail_logs/${id}`, { method: 'DELETE' });
+            if (!response.ok) {
+                showToast('删除日志失败');
+                return;
+            }
+            showToast('日志记录已删除');
+            await loadMailLogs();
+        }
+
         async function checkProject(id) {
             const response = await fetch(`/api/check/${id}`, { method: 'POST' });
             if (!response.ok) {
@@ -393,12 +505,14 @@
             const result = await response.json();
             showToast(`检查完成: ${result.status}`);
             await loadState();
+            await loadMailLogs();
         }
 
         function setupEvents() {
             const eventSource = new EventSource('/api/events');
             eventSource.onmessage = async () => {
                 await loadState();
+                await loadMailLogs();
             };
             eventSource.onerror = () => {
                 console.warn('事件流已断开，稍后将自动重连');
@@ -407,6 +521,7 @@
 
         loadProjects();
         loadState();
+        loadMailLogs();
         setupEvents();
     </script>
 </body>
