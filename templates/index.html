@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中英互译工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+                'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background: #ffffff;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            color: #2d3748;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            color: #718096;
+            font-size: 14px;
+        }
+
+        .settings {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+
+        .settings-group {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .settings-group label {
+            display: block;
+            font-size: 13px;
+            color: #4a5568;
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+
+        .settings-group input {
+            width: 100%;
+            padding: 10px 14px;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 14px;
+            color: #2d3748;
+            transition: border-color 0.2s;
+            outline: none;
+        }
+
+        .settings-group input:focus {
+            border-color: #667eea;
+        }
+
+        .input-area {
+            margin-bottom: 20px;
+        }
+
+        .input-area label {
+            display: block;
+            font-size: 14px;
+            color: #4a5568;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .input-area textarea {
+            width: 100%;
+            height: 180px;
+            padding: 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 15px;
+            color: #2d3748;
+            resize: vertical;
+            outline: none;
+            transition: border-color 0.2s;
+            font-family: inherit;
+            line-height: 1.6;
+        }
+
+        .input-area textarea:focus {
+            border-color: #667eea;
+        }
+
+        .btn-row {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 14px 24px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #ffffff;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .btn-secondary {
+            background: #edf2f7;
+            color: #4a5568;
+        }
+
+        .btn-secondary:hover {
+            background: #e2e8f0;
+        }
+
+        .result-area {
+            display: none;
+        }
+
+        .result-area.visible {
+            display: block;
+        }
+
+        .result-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .result-header label {
+            font-size: 14px;
+            color: #4a5568;
+            font-weight: 500;
+        }
+
+        .copy-btn {
+            padding: 6px 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #ffffff;
+            color: #4a5568;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover {
+            background: #edf2f7;
+        }
+
+        .copy-btn.copied {
+            background: #c6f6d5;
+            border-color: #9ae6b4;
+            color: #276749;
+        }
+
+        .result-box {
+            width: 100%;
+            min-height: 120px;
+            padding: 16px;
+            background: #f7fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 15px;
+            color: #2d3748;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .result-box.error {
+            color: #c53030;
+            background: #fff5f5;
+            border-color: #feb2b2;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #ffffff;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .char-count {
+            font-size: 12px;
+            color: #a0aec0;
+            text-align: right;
+            margin-top: 4px;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 24px;
+                border-radius: 16px;
+            }
+            .header h1 {
+                font-size: 22px;
+            }
+            .btn {
+                font-size: 14px;
+                padding: 12px 18px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌐 中英互译工具</h1>
+            <p>基于 Ollama AI 的智能翻译 · 自动检测语言方向</p>
+        </div>
+
+        <div class="settings">
+            <div class="settings-group">
+                <label for="host">Ollama 服务地址</label>
+                <input type="text" id="host" value="http://10.245.100.186:12434" placeholder="http://host:port">
+            </div>
+            <div class="settings-group">
+                <label for="model">模型名称</label>
+                <input type="text" id="model" value="qwen3.5:27b" placeholder="qwen3.5:27b">
+            </div>
+        </div>
+
+        <div class="input-area">
+            <label for="inputText">输入文本</label>
+            <textarea id="inputText" placeholder="请输入要翻译的文本，支持中文或英文..."></textarea>
+            <div class="char-count"><span id="charCount">0</span> 字符</div>
+        </div>
+
+        <div class="btn-row">
+            <button class="btn btn-primary" id="translateBtn" onclick="doTranslate()">
+                <span id="btnText">开始翻译</span>
+                <span class="spinner" id="btnSpinner" style="display:none"></span>
+            </button>
+            <button class="btn btn-secondary" onclick="clearAll()">清空</button>
+        </div>
+
+        <div class="result-area" id="resultArea">
+            <div class="result-header">
+                <label>翻译结果</label>
+                <button class="copy-btn" id="copyBtn" onclick="copyResult()">📋 复制</button>
+            </div>
+            <div class="result-box" id="resultBox"></div>
+        </div>
+    </div>
+
+    <script>
+        const inputText = document.getElementById('inputText');
+        const resultArea = document.getElementById('resultArea');
+        const resultBox = document.getElementById('resultBox');
+        const translateBtn = document.getElementById('translateBtn');
+        const btnText = document.getElementById('btnText');
+        const btnSpinner = document.getElementById('btnSpinner');
+        const copyBtn = document.getElementById('copyBtn');
+        const charCount = document.getElementById('charCount');
+
+        inputText.addEventListener('input', () => {
+            charCount.textContent = inputText.value.length;
+        });
+
+        inputText.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                doTranslate();
+            }
+        });
+
+        function setLoading(loading) {
+            translateBtn.disabled = loading;
+            btnText.style.display = loading ? 'none' : 'inline';
+            btnSpinner.style.display = loading ? 'inline-block' : 'none';
+        }
+
+        async function doTranslate() {
+            const text = inputText.value.trim();
+            if (!text) {
+                alert('请输入要翻译的文本');
+                return;
+            }
+
+            const host = document.getElementById('host').value.trim();
+            const model = document.getElementById('model').value.trim();
+
+            resultArea.classList.add('visible');
+            resultBox.textContent = '';
+            resultBox.classList.remove('error');
+            setLoading(true);
+
+            try {
+                const response = await fetch('/api/translate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text, host, model })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || '请求失败');
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6);
+                            if (data === '[DONE]') continue;
+
+                            try {
+                                const parsed = JSON.parse(data);
+                                if (parsed.error) {
+                                    resultBox.textContent = parsed.error;
+                                    resultBox.classList.add('error');
+                                } else if (parsed.content) {
+                                    resultBox.textContent += parsed.content;
+                                }
+                            } catch (e) {
+                                // 忽略解析错误
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                resultBox.textContent = '翻译出错: ' + err.message;
+                resultBox.classList.add('error');
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        async function copyResult() {
+            const text = resultBox.textContent;
+            if (!text) return;
+
+            try {
+                await navigator.clipboard.writeText(text);
+                copyBtn.textContent = '✅ 已复制';
+                copyBtn.classList.add('copied');
+                setTimeout(() => {
+                    copyBtn.textContent = '📋 复制';
+                    copyBtn.classList.remove('copied');
+                }, 2000);
+            } catch (e) {
+                // 降级方案
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                copyBtn.textContent = '✅ 已复制';
+                copyBtn.classList.add('copied');
+                setTimeout(() => {
+                    copyBtn.textContent = '📋 复制';
+                    copyBtn.classList.remove('copied');
+                }, 2000);
+            }
+        }
+
+        function clearAll() {
+            inputText.value = '';
+            charCount.textContent = '0';
+            resultBox.textContent = '';
+            resultBox.classList.remove('error');
+            resultArea.classList.remove('visible');
+        }
+    </script>
+</body>
+</html>

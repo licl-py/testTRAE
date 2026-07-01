@@ -1,0 +1,103 @@
+﻿python : Exception in thread Thread-2 (_readerthread):
+所在位置 行:1 字符: 1
++ python c:\Users\licl45\Desktop\testTRAE\process_formulas.py 2>
+&1 | Ou ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~
+    + CategoryInfo          : NotSpecified: (Exception in th... 
+   _readerthread)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Exception in thread Thread-1 (_readerthread):
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "D:\software\Python312\Lib\threading.py", line 1073, in _
+bootstrap_inner
+  File "D:\software\Python312\Lib\threading.py", line 1073, in _
+bootstrap_inner
+    self.run()
+  File "D:\software\Python312\Lib\threading.py", line 1010, in r
+un
+    self.run()
+  File "D:\software\Python312\Lib\threading.py", line 1010, in r
+un
+    self._target(*self._args, **self._kwargs)
+  File "D:\software\Python312\Lib\subprocess.py", line 1599, in 
+_readerthread
+    self._target(*self._args, **self._kwargs)
+  File "D:\software\Python312\Lib\subprocess.py", line 1599, in 
+_readerthread
+    buffer.append(fh.read())
+                  ^^^^^^^^^
+  File "<frozen codecs>", line 322, in decode
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0xb9 in posi
+tion 62: invalid start byte
+    buffer.append(fh.read())
+                  ^^^^^^^^^
+  File "<frozen codecs>", line 322, in decode
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0xb9 in posi
+tion 139: invalid start byte
+Traceback (most recent call last):
+======================================================================
+��1��: �� Word �ĵ��ж�ȡ��ʽ
+======================================================================
+
+��ʽ 1:
+  ��ȡ�ı�: x=(-b����(b^2-4ac))/(2a)
+
+��ʽ 2:
+  ��ȡ�ı�: fx=a_0+��_n=1^��(a_ncos((n��x)/(L))+b_nsin((n��x)/(L)))
+
+======================================================================
+��2��: ���� Python ���Դ���
+======================================================================
+���Դ����ѱ��浽: c:\Users\licl45\Desktop\testTRAE\test_formulas_from_word.py
+
+======================================================================
+��3��: ���в��Դ���
+======================================================================
+None
+
+======================================================================
+��4��: �����ḻ�� Word �ĵ�
+======================================================================
+  File "c:\Users\licl45\Desktop\testTRAE\process_formulas.py", l
+ine 1062, in <module>
+    build_rich_word_document(original_doc, output_doc)
+  File "c:\Users\licl45\Desktop\testTRAE\process_formulas.py", l
+ine 1003, in build_rich_word_document
+    p = doc.add_paragraph(style='List Bullet')
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\software\Python312\Lib\site-packages\docx\document.py
+", line 69, in add_paragraph
+    return self._body.add_paragraph(text, style)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\software\Python312\Lib\site-packages\docx\blkcntnr.py
+", line 57, in add_paragraph
+    paragraph.style = style
+    ^^^^^^^^^^^^^^^
+  File "D:\software\Python312\Lib\site-packages\docx\text\paragr
+aph.py", line 146, in style
+    style_id = self.part.get_style_id(style_or_name, WD_STYLE_TY
+PE.PARAGRAPH)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^
+  File "D:\software\Python312\Lib\site-packages\docx\parts\docum
+ent.py", line 80, in get_style_id
+    return self.styles.get_style_id(style_or_name, style_type)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\software\Python312\Lib\site-packages\docx\styles\styl
+es.py", line 101, in get_style_id
+    return self._get_style_id_from_name(style_or_name, style_typ
+e)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^
+  File "D:\software\Python312\Lib\site-packages\docx\styles\styl
+es.py", line 130, in _get_style_id_from_name
+    return self._get_style_id_from_style(self[style_name], style
+_type)
+                                         ~~~~^^^^^^^^^^^^
+  File "D:\software\Python312\Lib\site-packages\docx\styles\styl
+es.py", line 50, in __getitem__
+    raise KeyError("no style with name '%s'" % key)
+KeyError: "no style with name 'List Bullet'"
