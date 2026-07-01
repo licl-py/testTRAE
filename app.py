@@ -4,7 +4,7 @@ import re
 import smtplib
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -16,10 +16,34 @@ app = Flask(__name__)
 ROOT = Path(__file__).resolve().parent
 CONFIG_FILE = ROOT / "monitor_config.json"
 STATE_FILE = ROOT / "monitor_state.json"
+ENV_FILE = ROOT / ".env"
+EXAMPLE_ENV_FILE = ROOT / "monitor_env.example"
 EVENTS: List[Dict[str, Any]] = []
 EVENT_LOCK = threading.Lock()
 DEFAULT_CHECK_INTERVAL = 60
 DEFAULT_EMAIL_TO = "licl45@lenovo.com"
+
+
+def load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    with path.open("r", encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and value and key not in os.environ:
+                os.environ[key] = value
+
+
+def ensure_env_loaded() -> None:
+    if ENV_FILE.exists():
+        load_env_file(ENV_FILE)
+    elif EXAMPLE_ENV_FILE.exists():
+        load_env_file(EXAMPLE_ENV_FILE)
 
 
 def load_json(path: Path, default: Any) -> Any:
@@ -47,7 +71,7 @@ def ensure_files() -> None:
 
 def push_event(event_type: str, payload: Dict[str, Any]) -> None:
     with EVENT_LOCK:
-        EVENTS.append({"type": event_type, "time": datetime.utcnow().isoformat() + "Z", "payload": payload})
+        EVENTS.append({"type": event_type, "time": datetime.now(timezone.utc).isoformat(), "payload": payload})
         if len(EVENTS) > 200:
             EVENTS.pop(0)
 
@@ -180,7 +204,7 @@ def evaluate_alert(project: Dict[str, Any], metrics: Dict[str, Any]) -> bool:
 
 
 def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token: Optional[str] = None) -> Dict[str, Any]:
-    result: Dict[str, Any] = {"status": "unknown", "last_check": datetime.utcnow().isoformat() + "Z"}
+    result: Dict[str, Any] = {"status": "unknown", "last_check": datetime.now(timezone.utc).isoformat()}
     repo_info = parse_github_repo(project.get("repo_url", ""))
     if not repo_info:
         result["status"] = "invalid_repo"
@@ -366,6 +390,7 @@ def api_events() -> Response:
 
 
 if __name__ == "__main__":
+    ensure_env_loaded()
     ensure_files()
     monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
     monitor_thread.start()

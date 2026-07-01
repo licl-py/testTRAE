@@ -2,8 +2,8 @@
   "projects": {
     "project1": {
       "status": "no_changes",
-      "last_check": "2026-07-01T09:27:04.120549Z",
-      "last_commit": "4320264c085b31a055e0230a229f9ba6e8b720fb",
+      "last_check": "2026-07-01T09:34:55.213241Z",
+      "last_commit": "bebce397c72cbf7422920038f168d6ed5971315e",
       "new_commits": 0,
       "added_files": 0,
       "modified_files": 0,
@@ -13,7 +13,8 @@
         "modified": [],
         "deleted": []
       },
-      "alert_sent": false
+      "alert_sent": false,
+      "alert_error": "SMTP_HOST, SMTP_USER, and SMTP_PASS must be configured to send email."
     }
   }
 }
