@@ -204,6 +204,22 @@ def public_user_view(user: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def parse_bool(value: Any, default: bool = True) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("true", "1", "yes", "y", "on"):
+            return True
+        if normalized in ("false", "0", "no", "n", "off", ""):
+            return False
+    return bool(value)
+
+
 def sanitize_project(project: Dict[str, Any], current_user: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     owner_username = project.get("owner_username") or (current_user or {}).get("username")
     branch_value = (project.get("branch") or "").strip()
@@ -213,7 +229,7 @@ def sanitize_project(project: Dict[str, Any], current_user: Optional[Dict[str, A
         "repo_url": project.get("repo_url", "").strip(),
         "branch": branch_value,
         "check_interval": int(project.get("check_interval", DEFAULT_CHECK_INTERVAL)),
-        "monitor_enabled": bool(project.get("monitor_enabled", True)),
+        "monitor_enabled": parse_bool(project.get("monitor_enabled", True), default=True),
         "email_recipients": project.get("email_recipients", []),
         "sms_recipients": project.get("sms_recipients", []),
         "owner_username": owner_username,
@@ -466,15 +482,16 @@ def collect_git_review_payload(repo_dir: Path, base: str, head: str, max_diff_ch
 
 def generate_ai_git_review(project: Dict[str, Any], comparison: Dict[str, Any], last_sha: str, current_sha: str,
                            owner: str, repo: str, auth_repo_url: Optional[str] = None) -> Optional[str]:
+    ensure_env_loaded()
     enabled = os.environ.get("AI_REVIEW_ENABLED", "true").lower() not in ("false", "0", "no")
     if not enabled:
-        return None
+        return "AI 审查未执行：AI_REVIEW_ENABLED=false。"
 
-    ai_url = (os.environ.get("AI_REVIEW_URL") or "").strip()
-    ai_api_key = (os.environ.get("AI_REVIEW_API_KEY") or "").strip()
+    ai_url = (os.environ.get("AI_REVIEW_URL") or os.environ.get("AI_API_URL") or "").strip()
+    ai_api_key = (os.environ.get("AI_REVIEW_API_KEY") or os.environ.get("AI_API_KEY") or "").strip()
     ai_model = (os.environ.get("AI_REVIEW_MODEL") or "llama3.3-70b-instruct").strip()
     if not ai_url or not ai_api_key:
-        return None
+        return "AI 审查未执行：缺少 AI_REVIEW_URL 或 AI_REVIEW_API_KEY 配置。"
 
     timeout_seconds = int(os.environ.get("AI_REVIEW_TIMEOUT_SECONDS", "120"))
     max_diff_chars = int(os.environ.get("AI_REVIEW_MAX_DIFF_CHARS", "120000"))
@@ -699,10 +716,11 @@ def log_mail(recipient_list: List[str], subject: str, body: str, status: str, er
 
 
 def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token: Optional[str] = None) -> Dict[str, Any]:
+    monitor_enabled = parse_bool(project.get("monitor_enabled", True), default=True)
     result: Dict[str, Any] = {
         "status": "unknown",
         "last_check": datetime.now(timezone.utc).isoformat(),
-        "monitor_enabled": project.get("monitor_enabled", True),
+        "monitor_enabled": monitor_enabled,
         "new_commits": 0,
         "added_files": 0,
         "modified_files": 0,
@@ -711,7 +729,7 @@ def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token:
         "alert_sent": False,
     }
 
-    if not project.get("monitor_enabled", True):
+    if not monitor_enabled:
         result["status"] = "paused"
         return result
 
@@ -868,6 +886,7 @@ def start_monitor_thread() -> None:
 def monitor_loop() -> None:
     while True:
         ensure_files()
+        ensure_env_loaded()
         config = load_json(CONFIG_FILE, {"projects": []})
         state = load_json(STATE_FILE, {"projects": {}})
         now = datetime.now(timezone.utc).timestamp()
@@ -879,6 +898,31 @@ def monitor_loop() -> None:
                 continue
             interval = int(project.get("check_interval", DEFAULT_CHECK_INTERVAL))
             project_state = state.get("projects", {}).get(project_id, {})
+
+            if not parse_bool(project.get("monitor_enabled", True), default=True):
+                paused_state = {
+                    **project_state,
+                    "status": "paused",
+                    "monitor_enabled": False,
+                    "last_check": datetime.now(timezone.utc).isoformat(),
+                    "alert_sent": False,
+                }
+                if project_state.get("status") != "paused" or project_state.get("monitor_enabled") is not False:
+                    state.setdefault("projects", {})[project_id] = paused_state
+                    save_json(STATE_FILE, state)
+                    append_history(make_history_entry(project_id, "check", {
+                        "status": "paused",
+                        "error": None,
+                        "new_commits": paused_state.get("new_commits", 0),
+                        "added_files": paused_state.get("added_files", 0),
+                        "modified_files": paused_state.get("modified_files", 0),
+                        "deleted_files": paused_state.get("deleted_files", 0),
+                        "alert_sent": False,
+                    }))
+                    push_event("project_update", {"project_id": project_id, "result": paused_state})
+                    updated = True
+                continue
+
             last_check = project_state.get("last_check")
             if last_check:
                 elapsed = now - datetime.fromisoformat(last_check.replace("Z", "+00:00")).timestamp()

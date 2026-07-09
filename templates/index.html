@@ -3,104 +3,245 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GitHub 仓库监控服务</title>
+    <title>仓库监控服务</title>
     <style>
+        :root {
+            --bg-1: #f2f7f7;
+            --bg-2: #e5eff3;
+            --panel: #ffffff;
+            --text: #172033;
+            --muted: #556178;
+            --line: #d8e2ea;
+            --primary: #0e7490;
+            --primary-hover: #0a5f76;
+            --secondary: #e8eff4;
+            --danger: #dc2626;
+            --danger-hover: #b91c1c;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
         body {
             margin: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-            background: #f3f4f6;
-            color: #1f2937;
+            font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            background:
+                radial-gradient(circle at 12% 10%, rgba(14, 116, 144, 0.12), transparent 30%),
+                radial-gradient(circle at 88% 0%, rgba(15, 118, 110, 0.12), transparent 26%),
+                linear-gradient(165deg, var(--bg-1), var(--bg-2));
+            color: var(--text);
+            min-height: 100vh;
         }
 
         .page {
-            max-width: 1200px;
+            max-width: 1280px;
             margin: 0 auto;
             padding: 24px;
         }
 
-        .header {
-            margin-bottom: 24px;
-        }
-
-        .header h1 {
-            font-size: 32px;
-            margin-bottom: 8px;
-        }
-
-        .header p {
-            color: #4b5563;
-        }
-
         .panel {
-            background: #ffffff;
-            border-radius: 16px;
-            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
-            padding: 24px;
-            margin-bottom: 24px;
+            background: var(--panel);
+            border-radius: 18px;
+            box-shadow: 0 10px 28px rgba(0, 18, 39, 0.09);
+            border: 1px solid rgba(14, 116, 144, 0.08);
+            padding: 20px;
+            margin-bottom: 18px;
         }
 
-        .panel h2 {
-            margin-top: 0;
-            font-size: 20px;
+        .hidden {
+            display: none !important;
+        }
+
+        .module-section.hidden {
+            display: none !important;
+        }
+
+        .topbar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+            padding: 14px 18px;
+            background: rgba(255, 255, 255, 0.76);
+            border: 1px solid rgba(14, 116, 144, 0.08);
+            border-radius: 18px;
+            backdrop-filter: blur(10px);
+        }
+
+        .topbar .menu {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .topbar .menu button {
+            background: #edf7fb;
+            color: #15445a;
+            border: 1px solid rgba(14, 116, 144, 0.18);
+            border-radius: 999px;
+            font-weight: 700;
+            min-width: 116px;
+            padding: 10px 16px;
+        }
+
+        .topbar .menu button.active {
+            background: var(--primary);
+            color: #ffffff;
+            border-color: transparent;
+        }
+
+        .input-inline-tail {
+            margin-top: 8px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #3b4f66;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .input-inline-tail input[type="checkbox"] {
+            width: auto;
+            margin: 0;
+        }
+
+        .auth-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 18px;
+        }
+
+        .auth-grid.single {
+            grid-template-columns: 1fr;
+            max-width: 540px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .auth-card .auth-switch {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .auth-card .auth-switch button {
+            padding: 0;
+            background: transparent;
+            color: var(--primary);
+            box-shadow: none;
+            transform: none;
+        }
+
+        .auth-card .auth-switch button:hover {
+            text-decoration: underline;
+        }
+
+        .auth-card {
+            border: 1px solid #dbe7ef;
+            border-radius: 16px;
+            background: linear-gradient(180deg, #ffffff, #f8fcfe);
+            padding: 18px;
+        }
+
+        .auth-card h3 {
+            margin: 0 0 12px;
+            font-size: 18px;
+        }
+
+        .subtle-card {
+            border: 1px solid #dbe7ef;
+            border-radius: 16px;
+            background: #fbfdff;
+            padding: 18px;
+            margin-bottom: 18px;
+        }
+
+        .subtle-card h3 {
+            margin: 0 0 12px;
+            font-size: 17px;
+        }
+
+        .two-col {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 12px;
+        }
+
+        .mini-note {
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 6px;
+        }
+
+        .inline-select {
+            width: 100%;
+            border: 1px solid #cad8e2;
+            border-radius: 12px;
+            padding: 11px 12px;
+            font-size: 14px;
+            color: #111827;
+            background: #f9fcfd;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .panel-header h2 {
+            margin: 0;
+            font-size: 19px;
+        }
+
+        .panel-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .hint {
+            margin: 0 0 10px;
+            color: var(--muted);
+            font-size: 14px;
         }
 
         .grid {
             display: grid;
-            gap: 16px;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 12px;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
             align-items: start;
         }
 
-        .grid.full-width {
+        .full-width {
             grid-column: 1 / -1;
-        }
-
-        .grid > div {
-            min-width: 0;
-        }
-
-        input,
-        textarea {
-            width: 100%;
-            box-sizing: border-box;
-            border: 1px solid #d1d5db;
-            border-radius: 12px;
-            padding: 12px;
-            font-size: 14px;
-            color: #111827;
-            background: #f9fafb;
         }
 
         label {
             display: block;
-            margin-bottom: 8px;
-            color: #374151;
+            margin-bottom: 6px;
+            color: #2f3e56;
             font-weight: 600;
-        }
-
-        .inline-checkbox {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 8px;
-        }
-
-        .inline-checkbox {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 8px;
+            font-size: 14px;
         }
 
         input,
         textarea {
             width: 100%;
-            border: 1px solid #d1d5db;
+            border: 1px solid #cad8e2;
             border-radius: 12px;
-            padding: 12px;
+            padding: 11px 12px;
             font-size: 14px;
             color: #111827;
-            background: #f9fafb;
+            background: #f9fcfd;
         }
 
         textarea {
@@ -108,279 +249,675 @@
             resize: vertical;
         }
 
+        .inline-checkbox {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 6px;
+            color: #243447;
+            font-weight: 600;
+        }
+
+        .inline-checkbox input[type="checkbox"] {
+            width: auto;
+            margin: 0;
+            transform: translateY(1px);
+        }
+
         .actions {
             display: flex;
-            gap: 12px;
+            gap: 10px;
             flex-wrap: wrap;
             margin-top: 12px;
         }
 
         button {
             border: none;
-            border-radius: 12px;
-            padding: 12px 20px;
-            font-size: 14px;
+            border-radius: 10px;
+            padding: 9px 14px;
+            font-size: 13px;
             cursor: pointer;
-            transition: transform 0.15s ease, box-shadow 0.15s ease;
+            transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
         }
 
         button:hover {
             transform: translateY(-1px);
+            box-shadow: 0 8px 15px rgba(0, 18, 39, 0.08);
         }
 
         .btn-primary {
-            background: #2563eb;
+            background: var(--primary);
             color: #ffffff;
         }
 
+        .btn-primary:hover {
+            background: var(--primary-hover);
+        }
+
         .btn-secondary {
-            background: #e5e7eb;
-            color: #111827;
+            background: var(--secondary);
+            color: #1f2937;
+        }
+
+        .btn-danger {
+            background: #fce7e7;
+            color: var(--danger);
+        }
+
+        .btn-danger:hover {
+            background: #f8d5d5;
+            color: var(--danger-hover);
+        }
+
+        .icon-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 999px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            background: #eef4f8;
+            color: #1d4e63;
         }
 
         .table-wrapper {
             overflow-x: auto;
+            border: 1px solid #e2ebf1;
+            border-radius: 12px;
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
+            background: #ffffff;
         }
 
         th,
         td {
             text-align: left;
-            padding: 14px 12px;
-            border-bottom: 1px solid #e5e7eb;
+            padding: 11px 10px;
+            border-bottom: 1px solid #ecf1f5;
+            vertical-align: top;
+            font-size: 13px;
         }
 
         th {
-            color: #111827;
-            background: #f9fafb;
+            color: #1f3047;
+            background: #f4f9fb;
             font-weight: 700;
         }
 
         tr:hover {
-            background: #f3f4f6;
+            background: #f8fbfd;
         }
 
         .badge {
             display: inline-flex;
             align-items: center;
-            padding: 4px 10px;
+            padding: 3px 9px;
             border-radius: 9999px;
             font-size: 12px;
             font-weight: 700;
         }
 
         .badge-ok {
-            background: #d1fae5;
-            color: #065f46;
+            background: #d4f3e2;
+            color: #14532d;
         }
 
         .badge-warn {
-            background: #fef3c7;
-            color: #92400e;
+            background: #fff2cb;
+            color: #854d0e;
         }
 
         .badge-error {
-            background: #fee2e2;
+            background: #ffe0e0;
             color: #991b1b;
+        }
+
+        .loading {
+            display: none;
+            align-items: center;
+            gap: 6px;
+            color: #3a5870;
+            font-size: 12px;
+        }
+
+        .loading.visible {
+            display: inline-flex;
+        }
+
+        .spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid #c8dbe5;
+            border-top-color: #0e7490;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+            color: #486076;
+            font-size: 12px;
+        }
+
+        .pagination button {
+            padding: 4px 10px;
+            border-radius: 8px;
+            background: #edf3f7;
+            color: #233447;
+            font-size: 12px;
+        }
+
+        .pagination button:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
 
         .toast {
             position: fixed;
-            bottom: 24px;
-            right: 24px;
-            background: rgba(31, 41, 55, 0.95);
+            bottom: 22px;
+            right: 22px;
+            background: rgba(19, 33, 49, 0.96);
             color: #ffffff;
-            padding: 16px 20px;
-            border-radius: 14px;
+            padding: 14px 16px;
+            border-radius: 12px;
             box-shadow: 0 20px 40px rgba(15, 23, 42, 0.2);
             opacity: 0;
             pointer-events: none;
             transition: opacity 0.2s ease;
+            max-width: 400px;
+            z-index: 20;
         }
 
         .toast.visible {
             opacity: 1;
             pointer-events: auto;
         }
+
+        .modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(16, 25, 38, 0.55);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            z-index: 30;
+        }
+
+        .modal.visible {
+            display: flex;
+        }
+
+        .modal-card {
+            width: min(880px, 95vw);
+            max-height: 86vh;
+            overflow: auto;
+            background: #ffffff;
+            border-radius: 14px;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.25);
+            border: 1px solid #d7e4ec;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 16px;
+            border-bottom: 1px solid #e4edf3;
+        }
+
+        .modal-header h3 {
+            margin: 0;
+            font-size: 17px;
+        }
+
+        .modal-body {
+            padding: 14px 16px;
+        }
+
+        .modal-body pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            background: #f7fafc;
+            border: 1px solid #e0ebf1;
+            border-radius: 10px;
+            padding: 12px;
+            font-size: 12px;
+            color: #203246;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        @media (max-width: 840px) {
+            .page {
+                padding: 14px;
+            }
+            .header h1 {
+                font-size: 28px;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="page">
-        <div class="header">
-            <h1>GitHub 仓库监控服务</h1>
-            <p>管理多个项目、自动检查远程仓库更新，并支持邮件/SMS 警报。</p>
+        <div id="topbar" class="topbar hidden">
+            <div id="moduleMenu" class="menu"></div>
         </div>
 
-        <div class="panel">
-            <h2>项目配置</h2>
-            <div class="grid">
-                <div>
-                    <label for="projectId">项目 ID</label>
-                    <input id="projectId" placeholder="唯一标识，如 project-1" />
-                </div>
-                <div>
-                    <label for="projectName">项目名称</label>
-                    <input id="projectName" placeholder="显示名称" />
-                </div>
-                <div>
-                    <label for="repoUrl">GitHub 仓库 URL</label>
-                    <input id="repoUrl" placeholder="https://github.com/owner/repo.git" />
-                </div>
-                <div>
-                    <label for="branch">分支</label>
-                    <input id="branch" placeholder="master 或 main" />
-                </div>
-                <div>
-                    <label for="checkInterval">检查间隔 (秒)</label>
-                    <input id="checkInterval" type="number" min="10" placeholder="60" />
-                </div>
-                <div>
-                    <label for="monitorEnabled">监控启用</label>
-                    <div class="inline-checkbox">
-                        <input id="monitorEnabled" type="checkbox" />
-                        <span>启用</span>
+        <div id="authPanel" class="panel">
+            <div class="panel-header">
+                <h2 id="authPanelTitle">登录</h2>
+            </div>
+            <div class="auth-grid single">
+                <div id="loginView" class="auth-card">
+                    <div class="grid">
+                        <div class="full-width">
+                            <label for="loginUsername">用户名</label>
+                            <input id="loginUsername" autocomplete="username" placeholder="请输入用户名" />
+                        </div>
+                        <div class="full-width">
+                            <label for="loginPassword">密码</label>
+                            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="请输入密码" />
+                        </div>
+                    </div>
+                    <div class="actions">
+                        <button class="btn-primary" onclick="login()">登录</button>
+                    </div>
+                    <div class="auth-switch">
+                        <span class="mini-note">还没有账号？</span>
+                        <button type="button" onclick="switchAuthMode('register')">去注册</button>
                     </div>
                 </div>
-                <div>
-                    <label for="emailRecipients">邮件接收人</label>
-                    <input id="emailRecipients" placeholder="a@example.com,b@example.com" />
+                <div id="registerView" class="auth-card hidden">
+                    <div class="grid">
+                        <div class="full-width">
+                            <label for="registerUsername">用户名</label>
+                            <input id="registerUsername" autocomplete="username" placeholder="设置用户名" />
+                        </div>
+                        <div class="full-width">
+                            <label for="registerEmail">邮箱</label>
+                            <input id="registerEmail" type="email" autocomplete="email" placeholder="name@example.com" />
+                        </div>
+                        <div class="full-width">
+                            <label for="registerPassword">密码</label>
+                            <input id="registerPassword" type="password" autocomplete="new-password" placeholder="至少 6 位更安全" />
+                        </div>
+                    </div>
+                    <div class="actions">
+                        <button class="btn-primary" onclick="registerUser()">注册</button>
+                        <button class="btn-secondary" type="button" onclick="switchAuthMode('login')">返回登录</button>
+                    </div>
                 </div>
-                <div class="full-width">
-                    <label for="smsRecipients">短信接收人</label>
-                    <input id="smsRecipients" placeholder="+8613712345678, ..." />
+            </div>
+        </div>
+
+        <div id="appContent" class="hidden">
+            <div id="profileSection" class="subtle-card module-section hidden">
+                <div class="panel-header">
+                    <h3>个人信息维护</h3>
+                    <div class="panel-actions">
+                        <button class="btn-secondary" onclick="refreshMe()">刷新信息</button>
+                    </div>
+                </div>
+                <div class="two-col">
+                    <div>
+                        <label for="profileUsername">用户名</label>
+                        <input id="profileUsername" autocomplete="username" />
+                    </div>
+                    <div>
+                        <label for="profileEmail">邮箱</label>
+                        <input id="profileEmail" type="email" autocomplete="email" />
+                    </div>
+                    <div>
+                        <label for="oldPassword">旧密码</label>
+                        <input id="oldPassword" type="password" autocomplete="current-password" placeholder="修改密码时必须填写" />
+                    </div>
+                    <div>
+                        <label for="newPassword">新密码</label>
+                        <input id="newPassword" type="password" autocomplete="new-password" placeholder="留空则不修改" />
+                    </div>
+                    <div>
+                        <label for="gitUsername">Git 账号</label>
+                        <input id="gitUsername" autocomplete="username" placeholder="用于访问远程仓库的账号" />
+                    </div>
+                    <div>
+                        <label for="gitPassword">Git 密码/Token</label>
+                        <input id="gitPassword" type="password" autocomplete="new-password" placeholder="留空则不修改已保存凭据" />
+                        <label class="input-inline-tail">
+                            <input id="clearGitPassword" type="checkbox" />
+                            <span>清空已保存的 Git 密码/Token</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="actions">
+                    <button class="btn-primary" onclick="saveProfile()">保存</button>
+                    <button class="btn-secondary" onclick="logout()">退出登录</button>
+                    <button class="btn-danger" onclick="deleteAccount()">注销账户</button>
+                </div>
+                <div id="gitPasswordHint" class="mini-note">修改密码时需要同时输入旧密码，系统会校验后才允许更新。</div>
+            </div>
+
+            <div id="adminUsersPanel" class="subtle-card module-section hidden">
+                <div class="panel-header">
+                    <h3>用户管理</h3>
+                    <div class="panel-actions">
+                        <button class="btn-secondary" onclick="loadUsers()">刷新用户</button>
+                    </div>
+                </div>
+                <div class="grid">
+                    <div>
+                        <label for="adminUserUsername">用户名</label>
+                        <input id="adminUserUsername" placeholder="新建用户用户名" />
+                    </div>
+                    <div>
+                        <label for="adminUserEmail">邮箱</label>
+                        <input id="adminUserEmail" type="email" placeholder="user@example.com" />
+                    </div>
+                    <div>
+                        <label for="adminUserPassword">初始密码</label>
+                        <input id="adminUserPassword" type="password" placeholder="初始密码" />
+                    </div>
+                    <div>
+                        <label for="adminUserRole">角色</label>
+                        <select id="adminUserRole" class="inline-select">
+                            <option value="user">普通用户</option>
+                            <option value="admin">管理员</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="actions">
+                    <button class="btn-primary" onclick="createUserByAdmin()">创建用户</button>
+                </div>
+                <div class="table-wrapper" style="margin-top:12px;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>用户名</th>
+                                <th>邮箱</th>
+                                <th>角色</th>
+                                <th>状态</th>
+                                <th>注册时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="userTable"></tbody>
+                    </table>
                 </div>
             </div>
-            <div class="actions">
-                <button class="btn btn-primary" onclick="saveProject()">保存项目</button>
-                <button class="btn btn-secondary" onclick="clearForm()">重置表单</button>
-                <button class="btn btn-secondary" onclick="loadProjects()">刷新项目</button>
-            </div>
-        </div>
 
-        <div class="panel">
-            <h2>当前项目列表</h2>
-            <div class="table-wrapper">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>名称</th>
-                            <th>仓库</th>
-                            <th>分支</th>
-                            <th>间隔</th>
-                            <th>启用</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="projectTable"></tbody>
-                </table>
+            <div id="projectSection" class="panel module-section hidden">
+                <div class="panel-header">
+                    <h2>项目配置</h2>
+                    <div class="panel-actions">
+                        <span id="projectScopeHint" class="hint"></span>
+                    </div>
+                </div>
+                <div class="grid">
+                    <div>
+                        <label for="projectId">项目 ID</label>
+                        <input id="projectId" placeholder="唯一标识，如 project-1" />
+                    </div>
+                    <div>
+                        <label for="projectName">项目名称</label>
+                        <input id="projectName" placeholder="显示名称" />
+                    </div>
+                    <div>
+                        <label for="repoUrl">仓库 URL</label>
+                        <input id="repoUrl" placeholder="https://host/group/repo.git" />
+                    </div>
+                    <div>
+                        <label for="branch">分支</label>
+                        <input id="branch" placeholder="留空表示监控所有分支" />
+                        <div class="mini-note">填写分支名时只监控该分支；留空时监控所有远程分支。</div>
+                    </div>
+                    <div>
+                        <label for="checkInterval">检查间隔 (秒)</label>
+                        <input id="checkInterval" type="number" min="10" placeholder="60" />
+                    </div>
+                    <div>
+                        <label for="monitorEnabled">监控启用</label>
+                        <div class="inline-checkbox">
+                            <span>启用</span>
+                            <input id="monitorEnabled" type="checkbox" />
+                        </div>
+                    </div>
+                    <div>
+                        <label for="emailRecipients">邮件接收人</label>
+                        <input id="emailRecipients" placeholder="a@example.com,b@example.com" />
+                    </div>
+                    <div class="full-width">
+                        <label for="smsRecipients">短信接收人</label>
+                        <input id="smsRecipients" placeholder="+8613712345678, ..." />
+                    </div>
+                    <div id="ownerField" class="full-width hidden">
+                        <label for="ownerUsername">归属用户</label>
+                        <input id="ownerUsername" placeholder="管理员可指定项目归属用户" />
+                    </div>
+                    <div id="reviewField" class="full-width hidden">
+                        <label for="reviewStatus">审核状态</label>
+                        <select id="reviewStatus" class="inline-select">
+                            <option value="pending">待审核</option>
+                            <option value="approved">已通过</option>
+                            <option value="rejected">已拒绝</option>
+                        </select>
+                        <div class="mini-note">管理员可以对所有用户的项目进行管理和审核。</div>
+                    </div>
+                </div>
+                <div class="actions">
+                    <button class="btn-primary" onclick="saveProject()">保存项目</button>
+                    <button class="btn-secondary" onclick="clearForm()">重置表单</button>
+                    <button class="btn-secondary" onclick="loadProjects()">刷新项目</button>
+                </div>
+                <div class="panel-header" style="margin-top:16px;">
+                    <h2>当前项目列表</h2>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>名称</th>
+                                <th>归属</th>
+                                <th>审核</th>
+                                <th>仓库</th>
+                                <th>分支</th>
+                                <th>间隔</th>
+                                <th>启用</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="projectTable"></tbody>
+                    </table>
+                </div>
             </div>
-        </div>
 
-        <div class="panel">
-            <h2>服务状态</h2>
-            <p>事件流自动更新项目状态，触发检查或保存后可看到最新结果。</p>
-            <div class="table-wrapper">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>项目 ID</th>
-                            <th>状态</th>
-                            <th>新增提交</th>
-                            <th>新增</th>
-                            <th>修改</th>
-                            <th>删除</th>
-                            <th>警报</th>
-                            <th>上次检查</th>
-                        </tr>
-                    </thead>
-                    <tbody id="stateTable"></tbody>
-                </table>
+            <div id="stateSection" class="panel module-section hidden">
+                <div class="panel-header">
+                    <h2>服务状态</h2>
+                </div>
+                <p class="hint">普通用户仅能管理自己的项目；管理员可看到全部项目和审核状态。</p>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>项目名称</th>
+                                <th>状态</th>
+                                <th>新增提交</th>
+                                <th>新增</th>
+                                <th>修改</th>
+                                <th>删除</th>
+                                <th>警报</th>
+                                <th>上次检查</th>
+                                <th>日志</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stateTable"></tbody>
+                    </table>
+                </div>
             </div>
-        </div>
 
-        <div class="panel">
-            <h2>邮件发送记录</h2>
-            <div class="actions">
-                <button class="btn btn-secondary" onclick="clearMailLogs()">清空日志</button>
-                <button class="btn btn-secondary" onclick="loadMailLogs()">刷新日志</button>
-            </div>
-            <div class="table-wrapper" style="margin-top: 16px;">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>时间</th>
-                            <th>主题</th>
-                            <th>收件人</th>
-                            <th>状态</th>
-                            <th>错误</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="mailLogTable"></tbody>
-                </table>
+            <div id="mailSection" class="panel module-section hidden">
+                <div class="panel-header">
+                    <h2>邮件发送记录</h2>
+                    <div class="panel-actions">
+                        <div id="mailLoading" class="loading"><span class="spinner"></span><span>加载中</span></div>
+                        <button class="btn-danger" onclick="clearMailLogs()">清空</button>
+                        <button class="icon-btn" title="刷新邮件日志" onclick="loadMailLogs()">⟳</button>
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>主题</th>
+                                <th>收件人</th>
+                                <th>状态</th>
+                                <th>错误</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mailLogTable"></tbody>
+                    </table>
+                </div>
+                <div id="mailPagination" class="pagination"></div>
             </div>
         </div>
     </div>
 
     <div id="toast" class="toast"></div>
 
+    <div id="detailModal" class="modal" onclick="closeModalOnMask(event)">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 id="modalTitle">详情</h3>
+                <button class="icon-btn" onclick="closeModal()">✕</button>
+            </div>
+            <div class="modal-body" id="modalBody"></div>
+        </div>
+    </div>
+
     <script>
         const projectTable = document.getElementById('projectTable');
         const stateTable = document.getElementById('stateTable');
         const mailLogTable = document.getElementById('mailLogTable');
+        const userTable = document.getElementById('userTable');
         const toast = document.getElementById('toast');
+        const detailModal = document.getElementById('detailModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalBody = document.getElementById('modalBody');
+        const mailLoading = document.getElementById('mailLoading');
+        const mailPagination = document.getElementById('mailPagination');
+        const authPanel = document.getElementById('authPanel');
+        const appContent = document.getElementById('appContent');
+        const topbar = document.getElementById('topbar');
+        const moduleMenu = document.getElementById('moduleMenu');
+        const authPanelTitle = document.getElementById('authPanelTitle');
+        const loginView = document.getElementById('loginView');
+        const registerView = document.getElementById('registerView');
+        const mailPanel = document.getElementById('mailSection');
+        const adminUsersPanel = document.getElementById('adminUsersPanel');
+        const ownerField = document.getElementById('ownerField');
+        const reviewField = document.getElementById('reviewField');
+        const projectScopeHint = document.getElementById('projectScopeHint');
+        const moduleSections = ['profileSection', 'adminUsersPanel', 'projectSection', 'stateSection', 'mailSection'];
 
-        async function loadProjects() {
-            const response = await fetch('/api/projects');
-            const projects = await response.json();
-            projectTable.innerHTML = projects.map(project => {
-                return `
-                    <tr>
-                        <td>${project.id || ''}</td>
-                        <td>${project.name || ''}</td>
-                        <td>${project.repo_url || ''}</td>
-                        <td>${project.branch || ''}</td>
-                        <td>${project.check_interval || ''}</td>
-                        <td>${project.monitor_enabled ? '是' : '否'}</td>
-                        <td>
-                            <button class="btn btn-secondary" onclick="editProject('${project.id}')">编辑</button>
-                            <button class="btn btn-secondary" onclick="deleteProject('${project.id}')">删除</button>
-                            <button class="btn btn-secondary" onclick="checkProject('${project.id}')">检查</button>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
-        }
+        const PER_PAGE = 10;
+        let projectsCache = [];
+        let stateCache = {};
+        let mailLogsCache = [];
+        let projectLogsCache = [];
+        let usersCache = [];
+        let mailPage = 1;
+        let projectLogPage = 1;
+        let currentProjectLogName = '';
+        let activeSectionId = 'projectSection';
+        let currentUser = null;
+        let eventSource = null;
+        let editingUserId = null;
 
-        async function loadState() {
-            const response = await fetch('/api/state');
-            const state = await response.json();
-            stateTable.innerHTML = Object.entries(state).map(([projectId, projectState]) => {
-                const badgeClass = projectState.alert_sent ? 'badge-error' : projectState.status === 'changed' ? 'badge-warn' : 'badge-ok';
-                return `
-                    <tr>
-                        <td>${projectId}</td>
-                        <td><span class="badge ${badgeClass}">${projectState.status || 'unknown'}</span></td>
-                        <td>${projectState.new_commits || 0}</td>
-                        <td>${projectState.added_files || 0}</td>
-                        <td>${projectState.modified_files || 0}</td>
-                        <td>${projectState.deleted_files || 0}</td>
-                        <td>${projectState.alert_sent ? '是' : '否'}</td>
-                        <td>${projectState.last_check ? new Date(projectState.last_check).toLocaleString() : '-'}</td>
-                    </tr>
-                `;
-            }).join('');
+        function escapeHtml(value) {
+            return String(value || '')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
         }
 
         function showToast(message) {
             toast.textContent = message;
             toast.classList.add('visible');
-            setTimeout(() => toast.classList.remove('visible'), 3000);
+            setTimeout(() => toast.classList.remove('visible'), 2800);
+        }
+
+        function setLoading(section, loading) {
+            if (section === 'mail') {
+                mailLoading.classList.toggle('visible', loading);
+            }
+        }
+
+        function isAdmin() {
+            return currentUser && currentUser.role === 'admin';
+        }
+
+        function getProjectNameById(projectId) {
+            const project = projectsCache.find(item => item.id === projectId);
+            return project?.name || projectId || '-';
+        }
+
+        function formatLocalTime(value) {
+            if (!value) return '-';
+            const time = new Date(value);
+            return Number.isNaN(time.getTime()) ? '-' : time.toLocaleString();
+        }
+
+        function decodeArg(value) {
+            return decodeURIComponent(String(value || ''));
+        }
+
+        function openModal(title, contentText) {
+            modalTitle.textContent = title;
+            modalBody.innerHTML = `<pre>${escapeHtml(contentText)}</pre>`;
+            detailModal.classList.add('visible');
+        }
+
+        function closeModal() {
+            detailModal.classList.remove('visible');
+        }
+
+        function closeModalOnMask(event) {
+            if (event.target === detailModal) {
+                closeModal();
+            }
+        }
+
+        function renderPagination(target, page, totalPages, prevHandler, nextHandler) {
+            if (totalPages <= 1) {
+                target.innerHTML = '<span>共 1 页</span>';
+                return;
+            }
+            target.innerHTML = `
+                <button onclick="${prevHandler}()" ${page <= 1 ? 'disabled' : ''}>上一页</button>
+                <span>第 ${page} / ${totalPages} 页</span>
+                <button onclick="${nextHandler}()" ${page >= totalPages ? 'disabled' : ''}>下一页</button>
+            `;
         }
 
         function clearForm() {
@@ -392,23 +929,451 @@
             document.getElementById('monitorEnabled').checked = true;
             document.getElementById('emailRecipients').value = '';
             document.getElementById('smsRecipients').value = '';
+            document.getElementById('ownerUsername').value = currentUser?.username || '';
+            document.getElementById('reviewStatus').value = 'pending';
+        }
+
+        function switchAuthMode(mode) {
+            const registerMode = mode === 'register';
+            loginView.classList.toggle('hidden', registerMode);
+            registerView.classList.toggle('hidden', !registerMode);
+            authPanelTitle.textContent = registerMode ? '注册' : '登录';
+        }
+
+        function setActiveMenu(sectionId) {
+            Array.from(moduleMenu.querySelectorAll('button')).forEach(button => {
+                button.classList.toggle('active', button.dataset.target === sectionId);
+            });
+        }
+
+        function renderTopMenu() {
+            if (!currentUser) {
+                moduleMenu.innerHTML = '';
+                return;
+            }
+            const items = [
+                { label: '项目管理', target: 'projectSection' },
+                { label: '状态总览', target: 'stateSection' },
+            ];
+            if (isAdmin()) {
+                items.push({ label: '邮件日志', target: 'mailSection' });
+                items.push({ label: '用户管理', target: 'adminUsersPanel' });
+            }
+            items.push({ label: '个人信息', target: 'profileSection' });
+            moduleMenu.innerHTML = items.map(item => `<button type="button" data-target="${item.target}" onclick="showModule('${item.target}')">${item.label}</button>`).join('');
+        }
+
+        function showModule(sectionId, skipScroll = false) {
+            activeSectionId = sectionId;
+            moduleSections.forEach(id => {
+                const element = document.getElementById(id);
+                if (!element) return;
+                const shouldShow = id === sectionId;
+                element.classList.toggle('hidden', !shouldShow);
+            });
+            setActiveMenu(sectionId);
+            const target = document.getElementById(sectionId);
+            if (target && !skipScroll) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        function applyCurrentUserToUi() {
+            const authenticated = Boolean(currentUser);
+            if (!authenticated) {
+                switchAuthMode('login');
+            }
+            authPanel.classList.toggle('hidden', authenticated);
+            appContent.classList.toggle('hidden', !authenticated);
+            topbar.classList.toggle('hidden', !authenticated);
+            ownerField.classList.toggle('hidden', !isAdmin());
+            reviewField.classList.toggle('hidden', !isAdmin());
+            projectScopeHint.textContent = isAdmin() ? '管理员可管理全部项目并分配归属与审核状态。' : '仅显示并管理当前登录用户自己的项目。';
+            document.getElementById('ownerUsername').value = isAdmin() ? '' : (currentUser?.username || '');
+            if (!isAdmin()) {
+                document.getElementById('reviewStatus').value = 'pending';
+            }
+            renderTopMenu();
+        }
+
+        function renderProjects() {
+            projectTable.innerHTML = projectsCache.map(project => `
+                <tr>
+                    <td>${escapeHtml(project.id || '')}</td>
+                    <td>${escapeHtml(project.name || '')}</td>
+                    <td>${escapeHtml(project.owner_username || '')}</td>
+                    <td><span class="badge ${project.review_status === 'approved' ? 'badge-ok' : project.review_status === 'rejected' ? 'badge-error' : 'badge-warn'}">${escapeHtml(project.review_status || 'pending')}</span></td>
+                    <td>${escapeHtml(project.repo_url || '')}</td>
+                    <td>${escapeHtml(project.branch || '')}</td>
+                    <td>${project.check_interval || ''}</td>
+                    <td>${project.monitor_enabled ? '是' : '否'}</td>
+                    <td>
+                        <button class="btn-secondary" onclick="editProject('${encodeURIComponent(project.id || '')}')">编辑</button>
+                        <button class="btn-danger" onclick="deleteProject('${encodeURIComponent(project.id || '')}')">删除</button>
+                        <button class="btn-secondary" onclick="checkProject('${encodeURIComponent(project.id || '')}')">检查</button>
+                    </td>
+                </tr>
+            `).join('');
+            if (!projectsCache.length) {
+                projectTable.innerHTML = `<tr><td colspan="9">暂无项目</td></tr>`;
+            }
+        }
+
+        function renderState() {
+            const rows = Object.entries(stateCache).map(([projectId, projectState]) => {
+                const badgeClass = projectState.alert_sent
+                    ? 'badge-error'
+                    : projectState.status === 'changed' || projectState.status === 'baseline_initialized'
+                        ? 'badge-warn'
+                        : 'badge-ok';
+                return `
+                    <tr>
+                        <td>${escapeHtml(getProjectNameById(projectId))}</td>
+                        <td><span class="badge ${badgeClass}">${escapeHtml(projectState.status || 'unknown')}</span></td>
+                        <td>${projectState.new_commits || 0}</td>
+                        <td>${projectState.added_files || 0}</td>
+                        <td>${projectState.modified_files || 0}</td>
+                        <td>${projectState.deleted_files || 0}</td>
+                        <td>${projectState.alert_sent ? '是' : '否'}</td>
+                        <td>${formatLocalTime(projectState.last_check)}</td>
+                        <td><button class="btn-secondary" onclick="viewProjectLogs('${encodeURIComponent(projectId || '')}')">查看日志</button></td>
+                    </tr>
+                `;
+            });
+            stateTable.innerHTML = rows.length ? rows.join('') : '<tr><td colspan="9">暂无状态数据</td></tr>';
+        }
+
+        function renderMailLogs() {
+            const totalPages = Math.max(1, Math.ceil(mailLogsCache.length / PER_PAGE));
+            if (mailPage > totalPages) {
+                mailPage = totalPages;
+            }
+            const start = (mailPage - 1) * PER_PAGE;
+            const pageData = mailLogsCache.slice(start, start + PER_PAGE);
+            mailLogTable.innerHTML = pageData.map(entry => `
+                <tr>
+                    <td>${formatLocalTime(entry.time)}</td>
+                    <td>${escapeHtml(entry.subject || '')}</td>
+                    <td>${escapeHtml((entry.recipients || []).join(', '))}</td>
+                    <td>${escapeHtml(entry.status || '')}</td>
+                    <td>${escapeHtml(entry.error || '')}</td>
+                    <td>
+                        <button class="btn-secondary" onclick="openMailDetail('${encodeURIComponent(entry.id || '')}')">详情</button>
+                        <button class="btn-danger" onclick="deleteMailLog('${encodeURIComponent(entry.id || '')}')">删除</button>
+                    </td>
+                </tr>
+            `).join('');
+            if (!pageData.length) {
+                mailLogTable.innerHTML = '<tr><td colspan="6">暂无邮件记录</td></tr>';
+            }
+            renderPagination(mailPagination, mailPage, totalPages, 'prevMailPage', 'nextMailPage');
+        }
+
+        function renderUsers() {
+            if (!userTable) return;
+            userTable.innerHTML = usersCache.map(user => `
+                <tr>
+                    <td>${escapeHtml(user.username || '')}</td>
+                    <td>${escapeHtml(user.email || '')}</td>
+                    <td><span class="badge ${user.role === 'admin' ? 'badge-ok' : 'badge-warn'}">${escapeHtml(user.role || 'user')}</span></td>
+                    <td><span class="badge ${user.disabled ? 'badge-error' : 'badge-ok'}">${user.disabled ? '禁用' : '启用'}</span></td>
+                    <td>${formatLocalTime(user.created_at)}</td>
+                    <td>
+                        <button class="btn-secondary" onclick="editAdminUser('${encodeURIComponent(user.id || '')}')">编辑</button>
+                        <button class="btn-secondary" onclick="toggleUserRole('${encodeURIComponent(user.id || '')}')">${user.role === 'admin' ? '设为普通用户' : '设为管理员'}</button>
+                        <button class="btn-secondary" onclick="toggleUserDisabled('${encodeURIComponent(user.id || '')}')">${user.disabled ? '启用' : '禁用'}</button>
+                        <button class="btn-danger" onclick="deleteAdminUser('${encodeURIComponent(user.id || '')}')">删除</button>
+                    </td>
+                </tr>
+            `).join('');
+            if (!usersCache.length) {
+                userTable.innerHTML = '<tr><td colspan="6">暂无用户</td></tr>';
+            }
+        }
+
+        function prevMailPage() {
+            if (mailPage > 1) {
+                mailPage -= 1;
+                renderMailLogs();
+            }
+        }
+
+        function nextMailPage() {
+            const totalPages = Math.max(1, Math.ceil(mailLogsCache.length / PER_PAGE));
+            if (mailPage < totalPages) {
+                mailPage += 1;
+                renderMailLogs();
+            }
+        }
+
+        function renderProjectLogTable(projectName) {
+            const totalPages = Math.max(1, Math.ceil(projectLogsCache.length / PER_PAGE));
+            if (projectLogPage > totalPages) {
+                projectLogPage = totalPages;
+            }
+            const start = (projectLogPage - 1) * PER_PAGE;
+            const pageData = projectLogsCache.slice(start, start + PER_PAGE);
+            const rows = pageData.map(entry => {
+                const details = JSON.stringify(entry.details || {}, null, 2);
+                return `
+                    <tr>
+                        <td>${formatLocalTime(entry.time)}</td>
+                        <td>${escapeHtml(entry.event || '')}</td>
+                        <td><pre style="white-space: pre-wrap; margin:0; max-width: 520px;">${escapeHtml(details)}</pre></td>
+                    </tr>
+                `;
+            }).join('');
+            modalBody.innerHTML = `
+                <div class="mini-note" style="margin-bottom:10px;">项目：${escapeHtml(projectName)}，共 ${projectLogsCache.length} 条日志</div>
+                <div class="table-wrapper" style="max-height: 58vh;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>事件</th>
+                                <th>详情</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rows || '<tr><td colspan="3">暂无日志记录</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="pagination" style="margin-top: 10px;">
+                    <button onclick="prevProjectLogPage()" ${projectLogPage <= 1 ? 'disabled' : ''}>上一页</button>
+                    <span>第 ${projectLogPage} / ${totalPages} 页</span>
+                    <button onclick="nextProjectLogPage()" ${projectLogPage >= totalPages ? 'disabled' : ''}>下一页</button>
+                </div>
+            `;
+        }
+
+        function prevProjectLogPage() {
+            if (projectLogPage > 1) {
+                projectLogPage -= 1;
+                renderProjectLogTable(currentProjectLogName);
+            }
+        }
+
+        function nextProjectLogPage() {
+            const totalPages = Math.max(1, Math.ceil(projectLogsCache.length / PER_PAGE));
+            if (projectLogPage < totalPages) {
+                projectLogPage += 1;
+                renderProjectLogTable(currentProjectLogName);
+            }
+        }
+
+        async function apiJson(url, options = {}) {
+            const response = await fetch(url, {
+                credentials: 'same-origin',
+                ...options,
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(options.headers || {})
+                }
+            });
+            let data = null;
+            try {
+                data = await response.json();
+            } catch (error) {
+                data = null;
+            }
+            if (!response.ok) {
+                throw new Error(data?.error || '请求失败');
+            }
+            return data;
+        }
+
+        async function loadMe() {
+            try {
+                const data = await apiJson('/api/auth/me');
+                currentUser = data.user;
+                applyCurrentUserToUi();
+                fillProfileForm(currentUser);
+                clearForm();
+                return true;
+            } catch (error) {
+                currentUser = null;
+                applyCurrentUserToUi();
+                return false;
+            }
+        }
+
+        function fillProfileForm(user) {
+            if (!user) return;
+            document.getElementById('profileUsername').value = user.username || '';
+            document.getElementById('profileEmail').value = user.email || '';
+            document.getElementById('oldPassword').value = '';
+            document.getElementById('newPassword').value = '';
+            document.getElementById('gitUsername').value = user.git_username || '';
+            document.getElementById('gitPassword').value = '';
+            document.getElementById('clearGitPassword').checked = false;
+            const gitPasswordHint = document.getElementById('gitPasswordHint');
+            if (gitPasswordHint) {
+                const hasPassword = Boolean(user.has_git_password);
+                gitPasswordHint.textContent = hasPassword
+                    ? '已保存 Git 密码/Token。留空表示保持不变，可勾选清空。'
+                    : '尚未保存 Git 密码/Token。建议填写后用于自动拉取远程仓库。';
+            }
+        }
+
+        async function login() {
+            const username = document.getElementById('loginUsername').value.trim();
+            const password = document.getElementById('loginPassword').value;
+            if (!username || !password) {
+                showToast('请输入用户名和密码');
+                return;
+            }
+            try {
+                await apiJson('/api/auth/login', {
+                    method: 'POST',
+                    body: JSON.stringify({ username, password })
+                });
+                showToast('登录成功');
+                document.getElementById('loginPassword').value = '';
+                await afterAuth();
+            } catch (error) {
+                showToast(error.message || '登录失败');
+            }
+        }
+
+        async function registerUser() {
+            const username = document.getElementById('registerUsername').value.trim();
+            const email = document.getElementById('registerEmail').value.trim();
+            const password = document.getElementById('registerPassword').value;
+            if (!username || !email || !password) {
+                showToast('请填写用户名、邮箱和密码');
+                return;
+            }
+            try {
+                await apiJson('/api/auth/register', {
+                    method: 'POST',
+                    body: JSON.stringify({ username, email, password })
+                });
+                showToast('注册成功，请登录');
+                document.getElementById('registerUsername').value = '';
+                document.getElementById('registerEmail').value = '';
+                document.getElementById('registerPassword').value = '';
+            } catch (error) {
+                showToast(error.message || '注册失败');
+            }
+        }
+
+        async function logout() {
+            try {
+                await apiJson('/api/auth/logout', { method: 'POST' });
+            } finally {
+                currentUser = null;
+                projectsCache = [];
+                stateCache = {};
+                mailLogsCache = [];
+                projectLogsCache = [];
+                usersCache = [];
+                if (eventSource) {
+                    eventSource.close();
+                    eventSource = null;
+                }
+                applyCurrentUserToUi();
+                renderProjects();
+                renderState();
+                if (userTable) userTable.innerHTML = '';
+                showToast('已退出登录');
+            }
+        }
+
+        async function refreshMe() {
+            const ok = await loadMe();
+            if (!ok) {
+                showToast('刷新失败，请重新登录');
+                return;
+            }
+            showModule('profileSection', true);
+            showToast('个人信息已刷新');
+        }
+
+        async function saveProfile() {
+            const payload = {
+                username: document.getElementById('profileUsername').value.trim(),
+                email: document.getElementById('profileEmail').value.trim(),
+                old_password: document.getElementById('oldPassword').value,
+                new_password: document.getElementById('newPassword').value,
+                git_username: document.getElementById('gitUsername').value.trim(),
+                git_password: document.getElementById('gitPassword').value,
+                clear_git_password: document.getElementById('clearGitPassword').checked
+            };
+            if (!payload.username || !payload.email) {
+                showToast('用户名和邮箱不能为空');
+                return;
+            }
+            if (payload.new_password && !payload.old_password) {
+                showToast('修改密码时必须输入旧密码');
+                return;
+            }
+            if (payload.clear_git_password) {
+                payload.git_password = '';
+            } else if (!payload.git_password) {
+                delete payload.git_password;
+            }
+            try {
+                const data = await apiJson('/api/users/me', {
+                    method: 'PUT',
+                    body: JSON.stringify(payload)
+                });
+                currentUser = data.user;
+                applyCurrentUserToUi();
+                fillProfileForm(currentUser);
+                showToast('个人信息已更新');
+                await afterAuth(false);
+                showModule('profileSection', true);
+            } catch (error) {
+                showToast(error.message || '保存失败');
+            }
+        }
+
+        async function deleteAccount() {
+            if (!confirm('确认注销当前账户吗？此操作不可恢复。')) {
+                return;
+            }
+            try {
+                await apiJson('/api/users/me', {
+                    method: 'DELETE',
+                    body: JSON.stringify({ confirm: true })
+                });
+                await logout();
+                showToast('账户已注销');
+            } catch (error) {
+                showToast(error.message || '注销失败');
+            }
+        }
+
+        async function loadProjects() {
+            const data = await apiJson('/api/projects');
+            projectsCache = data;
+            renderProjects();
+            renderState();
+        }
+
+        async function loadState() {
+            const data = await apiJson('/api/state');
+            stateCache = data;
+            renderState();
         }
 
         function editProject(id) {
-            fetch('/api/projects')
-                .then(r => r.json())
-                .then(projects => {
-                    const project = projects.find(item => item.id === id);
-                    if (!project) return;
-                    document.getElementById('projectId').value = project.id || '';
-                    document.getElementById('projectName').value = project.name || '';
-                    document.getElementById('repoUrl').value = project.repo_url || '';
-                    document.getElementById('branch').value = project.branch || '';
-                    document.getElementById('checkInterval').value = project.check_interval || '';
-                    document.getElementById('monitorEnabled').checked = project.monitor_enabled !== false;
-                    document.getElementById('emailRecipients').value = Array.isArray(project.email_recipients) ? project.email_recipients.join(',') : project.email_recipients || '';
-                    document.getElementById('smsRecipients').value = Array.isArray(project.sms_recipients) ? project.sms_recipients.join(',') : project.sms_recipients || '';
-                });
+            id = decodeArg(id);
+            const project = projectsCache.find(item => item.id === id);
+            if (!project) {
+                return;
+            }
+            document.getElementById('projectId').value = project.id || '';
+            document.getElementById('projectName').value = project.name || '';
+            document.getElementById('repoUrl').value = project.repo_url || '';
+            document.getElementById('branch').value = project.branch || '';
+            document.getElementById('checkInterval').value = project.check_interval || '';
+            document.getElementById('monitorEnabled').checked = project.monitor_enabled !== false;
+            document.getElementById('emailRecipients').value = Array.isArray(project.email_recipients) ? project.email_recipients.join(',') : project.email_recipients || '';
+            document.getElementById('smsRecipients').value = Array.isArray(project.sms_recipients) ? project.sms_recipients.join(',') : project.sms_recipients || '';
+            document.getElementById('ownerUsername').value = project.owner_username || currentUser?.username || '';
+            document.getElementById('reviewStatus').value = project.review_status || 'pending';
         }
 
         async function saveProject() {
@@ -421,6 +1386,8 @@
                 monitor_enabled: document.getElementById('monitorEnabled').checked,
                 email_recipients: document.getElementById('emailRecipients').value.split(',').map(x => x.trim()).filter(Boolean),
                 sms_recipients: document.getElementById('smsRecipients').value.split(',').map(x => x.trim()).filter(Boolean),
+                owner_username: isAdmin() ? document.getElementById('ownerUsername').value.trim() : currentUser?.username,
+                review_status: isAdmin() ? document.getElementById('reviewStatus').value : 'pending'
             };
 
             if (!project.id || !project.repo_url) {
@@ -428,101 +1395,291 @@
                 return;
             }
 
-            const response = await fetch('/api/projects', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(project)
-            });
-            if (!response.ok) {
-                const data = await response.json();
-                showToast(data.error || '保存失败');
-                return;
+            try {
+                await apiJson('/api/projects', {
+                    method: 'POST',
+                    body: JSON.stringify(project)
+                });
+                showToast('项目配置已保存');
+                await loadProjects();
+                await loadState();
+                clearForm();
+            } catch (error) {
+                showToast(error.message || '保存失败');
             }
-            showToast('项目配置已保存');
-            await loadProjects();
-            await loadState();
-            clearForm();
         }
 
         async function deleteProject(id) {
-            const response = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
-            if (!response.ok) {
-                showToast('删除失败');
+            id = decodeArg(id);
+            if (!confirm('确认删除该项目吗？')) {
                 return;
             }
-            showToast('项目已删除');
-            await loadProjects();
-            await loadState();
+            try {
+                await apiJson(`/api/projects/${id}`, { method: 'DELETE' });
+                showToast('项目已删除');
+                await loadProjects();
+                await loadState();
+            } catch (error) {
+                showToast(error.message || '删除失败');
+            }
         }
 
         async function loadMailLogs() {
-            const response = await fetch('/api/mail_logs');
-            if (!response.ok) {
+            if (!isAdmin()) return;
+            setLoading('mail', true);
+            try {
+                const data = await apiJson('/api/mail_logs');
+                mailLogsCache = data;
+                mailPage = 1;
+                renderMailLogs();
+            } catch (error) {
                 mailLogTable.innerHTML = '<tr><td colspan="6">无法加载日志</td></tr>';
-                return;
+            } finally {
+                setLoading('mail', false);
             }
-            const logs = await response.json();
-            mailLogTable.innerHTML = logs.map(entry => {
-                return `
-                    <tr>
-                        <td>${new Date(entry.time).toLocaleString()}</td>
-                        <td>${entry.subject || ''}</td>
-                        <td>${(entry.recipients || []).join(', ')}</td>
-                        <td>${entry.status || ''}</td>
-                        <td>${entry.error || ''}</td>
-                        <td><button class="btn btn-secondary" onclick="deleteMailLog('${entry.id}')">删除</button></td>
-                    </tr>
-                `;
-            }).join('');
         }
 
         async function clearMailLogs() {
-            const response = await fetch('/api/mail_logs', { method: 'DELETE' });
-            if (!response.ok) {
-                showToast('清空日志失败');
+            if (!confirm('确认清空所有邮件日志吗？')) {
                 return;
             }
-            showToast('邮件日志已清空');
-            await loadMailLogs();
+            try {
+                await apiJson('/api/mail_logs', { method: 'DELETE' });
+                showToast('邮件日志已清空');
+                await loadMailLogs();
+            } catch (error) {
+                showToast(error.message || '清空日志失败');
+            }
         }
 
         async function deleteMailLog(id) {
-            const response = await fetch(`/api/mail_logs/${id}`, { method: 'DELETE' });
-            if (!response.ok) {
-                showToast('删除日志失败');
+            id = decodeArg(id);
+            if (!confirm('确认删除这条邮件日志吗？')) {
                 return;
             }
-            showToast('日志记录已删除');
-            await loadMailLogs();
+            try {
+                await apiJson(`/api/mail_logs/${id}`, { method: 'DELETE' });
+                showToast('日志记录已删除');
+                await loadMailLogs();
+            } catch (error) {
+                showToast(error.message || '删除日志失败');
+            }
+        }
+
+        function openMailDetail(logId) {
+            logId = decodeArg(logId);
+            const item = mailLogsCache.find(entry => entry.id === logId);
+            if (!item) {
+                showToast('未找到邮件记录');
+                return;
+            }
+            const text = [
+                `时间: ${formatLocalTime(item.time)}`,
+                `主题: ${item.subject || ''}`,
+                `收件人: ${(item.recipients || []).join(', ')}`,
+                `状态: ${item.status || ''}`,
+                `错误: ${item.error || ''}`,
+                '',
+                '邮件内容:',
+                item.body || ''
+            ].join('\n');
+            openModal('邮件详情', text);
+        }
+
+        async function viewProjectLogs(projectId) {
+            projectId = decodeArg(projectId);
+            const projectName = getProjectNameById(projectId);
+            try {
+                const logs = await apiJson(`/api/state/history?project_id=${encodeURIComponent(projectId)}`);
+                projectLogsCache = Array.isArray(logs) ? logs : [];
+                projectLogPage = 1;
+                currentProjectLogName = projectName;
+                modalTitle.textContent = `项目日志 - ${projectName}`;
+                renderProjectLogTable(projectName);
+                detailModal.classList.add('visible');
+            } catch (error) {
+                openModal(`项目日志 - ${projectName}`, '加载项目日志失败');
+            }
         }
 
         async function checkProject(id) {
-            const response = await fetch(`/api/check/${id}`, { method: 'POST' });
-            if (!response.ok) {
-                showToast('检查请求失败');
+            id = decodeArg(id);
+            try {
+                const result = await apiJson(`/api/check/${id}`, { method: 'POST' });
+                showToast(`检查完成: ${result.status}`);
+                await loadState();
+                if (isAdmin()) {
+                    await loadMailLogs();
+                }
+            } catch (error) {
+                showToast(error.message || '检查请求失败');
+            }
+        }
+
+        async function loadUsers() {
+            if (!isAdmin()) {
+                showToast('仅管理员可查看用户列表');
                 return;
             }
-            const result = await response.json();
-            showToast(`检查完成: ${result.status}`);
-            await loadState();
-            await loadMailLogs();
+            try {
+                usersCache = await apiJson('/api/admin/users');
+                renderUsers();
+                showToast('用户列表已刷新');
+            } catch (error) {
+                userTable.innerHTML = '<tr><td colspan="6">无法加载用户</td></tr>';
+                showToast(error.message || '刷新用户失败');
+            }
+        }
+
+        function fillAdminUserForm(user) {
+            document.getElementById('adminUserUsername').value = user?.username || '';
+            document.getElementById('adminUserEmail').value = user?.email || '';
+            document.getElementById('adminUserPassword').value = '';
+            document.getElementById('adminUserRole').value = user?.role || 'user';
+            editingUserId = user?.id || null;
+        }
+
+        async function createUserByAdmin() {
+            const payload = {
+                username: document.getElementById('adminUserUsername').value.trim(),
+                email: document.getElementById('adminUserEmail').value.trim(),
+                password: document.getElementById('adminUserPassword').value,
+                role: document.getElementById('adminUserRole').value
+            };
+            if (!payload.username || !payload.email || !payload.password) {
+                showToast('请填写用户名、邮箱和初始密码');
+                return;
+            }
+            try {
+                if (editingUserId) {
+                    await apiJson(`/api/admin/users/${editingUserId}`, { method: 'PUT', body: JSON.stringify(payload) });
+                    showToast('用户已更新');
+                } else {
+                    await apiJson('/api/admin/users', { method: 'POST', body: JSON.stringify(payload) });
+                    showToast('用户已创建');
+                }
+                editingUserId = null;
+                fillAdminUserForm(null);
+                await loadUsers();
+            } catch (error) {
+                showToast(error.message || '用户保存失败');
+            }
+        }
+
+        async function editAdminUser(id) {
+            id = decodeArg(id);
+            const user = usersCache.find(item => item.id === id);
+            if (!user) return;
+            fillAdminUserForm(user);
+            showToast('用户信息已加载到编辑表单');
+        }
+
+        async function toggleUserDisabled(id) {
+            id = decodeArg(id);
+            const user = usersCache.find(item => item.id === id);
+            if (!user) return;
+            try {
+                await apiJson(`/api/admin/users/${id}`, { method: 'PUT', body: JSON.stringify({ username: user.username, email: user.email, role: user.role, disabled: !user.disabled }) });
+                await loadUsers();
+            } catch (error) {
+                showToast(error.message || '状态更新失败');
+            }
+        }
+
+        async function toggleUserRole(id) {
+            id = decodeArg(id);
+            const user = usersCache.find(item => item.id === id);
+            if (!user) return;
+            try {
+                await apiJson(`/api/admin/users/${id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        username: user.username,
+                        email: user.email,
+                        role: user.role === 'admin' ? 'user' : 'admin',
+                        disabled: user.disabled,
+                    })
+                });
+                await loadUsers();
+            } catch (error) {
+                showToast(error.message || '角色更新失败');
+            }
+        }
+
+        async function deleteAdminUser(id) {
+            id = decodeArg(id);
+            if (!confirm('确认删除该用户吗？')) {
+                return;
+            }
+            try {
+                await apiJson(`/api/admin/users/${id}`, { method: 'DELETE' });
+                await loadUsers();
+            } catch (error) {
+                showToast(error.message || '删除用户失败');
+            }
         }
 
         function setupEvents() {
-            const eventSource = new EventSource('/api/events');
-            eventSource.onmessage = async () => {
-                await loadState();
-                await loadMailLogs();
+            if (eventSource) {
+                eventSource.close();
+            }
+            eventSource = new EventSource('/api/events');
+            let eventRefreshTimer = null;
+            eventSource.onmessage = () => {
+                clearTimeout(eventRefreshTimer);
+                eventRefreshTimer = setTimeout(async () => {
+                    await loadProjects();
+                    await loadState();
+                    if (isAdmin()) {
+                        await loadMailLogs();
+                        await loadUsers();
+                    }
+                    showModule(activeSectionId, true);
+                }, 300);
             };
             eventSource.onerror = () => {
                 console.warn('事件流已断开，稍后将自动重连');
             };
         }
 
-        loadProjects();
-        loadState();
-        loadMailLogs();
-        setupEvents();
+        async function afterAuth(loadAll = true) {
+            if (!currentUser) {
+                const ok = await loadMe();
+                if (!ok) {
+                    if (eventSource) {
+                        eventSource.close();
+                        eventSource = null;
+                    }
+                    return false;
+                }
+            }
+            applyCurrentUserToUi();
+            if (loadAll) {
+                showModule('projectSection', true);
+            } else {
+                showModule(activeSectionId, true);
+            }
+            if (loadAll) {
+                await loadProjects();
+                await loadState();
+                if (isAdmin()) {
+                    await loadMailLogs();
+                    await loadUsers();
+                }
+            }
+            setupEvents();
+            return true;
+        }
+
+        async function bootstrap() {
+            switchAuthMode('login');
+            const ok = await loadMe();
+            if (ok) {
+                await afterAuth();
+            }
+        }
+
+        bootstrap();
     </script>
 </body>
 </html>
