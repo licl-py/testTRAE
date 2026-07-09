@@ -1,23 +1,31 @@
 ﻿import json
 import os
 import re
+import shutil
 import smtplib
+import subprocess
 import threading
 import time
 import uuid
+from base64 import urlsafe_b64encode
 from datetime import datetime, timezone
 from email.message import EmailMessage
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote, urlparse, urlunparse
 
 import requests
-from flask import Flask, jsonify, render_template, request, Response, stream_with_context
+from flask import Flask, jsonify, render_template, request, Response, session, stream_with_context
+from cryptography.fernet import Fernet, InvalidToken
+from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
 ROOT = Path(__file__).resolve().parent
 CONFIG_FILE = ROOT / "monitor_config.json"
 STATE_FILE = ROOT / "monitor_state.json"
 MAIL_LOG_FILE = ROOT / "mail_log.json"
+USER_FILE = ROOT / "users.json"
 ENV_FILE = ROOT / ".env"
 EXAMPLE_ENV_FILE = ROOT / "monitor_env.example"
 EVENTS: List[Dict[str, Any]] = []
@@ -26,6 +34,11 @@ MONITOR_THREAD_STARTED = False
 MONITOR_THREAD_LOCK = threading.Lock()
 DEFAULT_CHECK_INTERVAL = 60
 DEFAULT_EMAIL_TO = "licl45@lenovo.com"
+DEFAULT_ADMIN_USERNAME = "admin"
+DEFAULT_ADMIN_PASSWORD = "admin"
+DEFAULT_ADMIN_EMAIL = "admin@example.com"
+
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "testtrae-secret-key")
 
 
 def load_env_file(path: Path) -> None:
@@ -66,13 +79,165 @@ def save_json(path: Path, data: Any) -> None:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
+def get_fernet() -> Fernet:
+    secret = os.environ.get("FLASK_SECRET_KEY", app.secret_key or "testtrae-secret-key")
+    key = urlsafe_b64encode(sha256(secret.encode("utf-8")).digest())
+    return Fernet(key)
+
+
+def encrypt_value(value: Optional[str]) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    return get_fernet().encrypt(raw.encode("utf-8")).decode("utf-8")
+
+
+def decrypt_value(value: Optional[str]) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    try:
+        return get_fernet().decrypt(raw.encode("utf-8")).decode("utf-8")
+    except InvalidToken:
+        return ""
+
+
+def redact_secret_text(value: str) -> str:
+    return re.sub(r"(https?://)([^:/@\s]+):([^@\s]+)@", r"\1***:***@", value)
+
+
 def ensure_files() -> None:
     if not CONFIG_FILE.exists():
         save_json(CONFIG_FILE, {"projects": []})
     if not STATE_FILE.exists():
-        save_json(STATE_FILE, {"projects": {}})
+        save_json(STATE_FILE, {"projects": {}, "history": []})
     if not MAIL_LOG_FILE.exists():
         save_json(MAIL_LOG_FILE, {"logs": []})
+    if not USER_FILE.exists():
+        seed_default_users()
+    else:
+        ensure_default_admin_user()
+
+
+def seed_default_users() -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    save_json(USER_FILE, {
+        "users": [
+            {
+                "id": str(uuid.uuid4()),
+                "username": DEFAULT_ADMIN_USERNAME,
+                "email": DEFAULT_ADMIN_EMAIL,
+                "password_hash": generate_password_hash(DEFAULT_ADMIN_PASSWORD),
+                "role": "admin",
+                "disabled": False,
+                "created_at": now,
+                "updated_at": now,
+            }
+        ]
+    })
+
+
+def ensure_default_admin_user() -> None:
+    users = load_users()
+    updated = False
+    for user in users:
+        if user.get("username", "").lower() == DEFAULT_ADMIN_USERNAME and user.get("email", "").lower() == DEFAULT_ADMIN_EMAIL:
+            user["role"] = "admin"
+            user["disabled"] = False
+            user["password_hash"] = generate_password_hash(DEFAULT_ADMIN_PASSWORD)
+            user["updated_at"] = datetime.now(timezone.utc).isoformat()
+            updated = True
+            break
+    if updated:
+        save_users(users)
+
+
+def load_users() -> List[Dict[str, Any]]:
+    data = load_json(USER_FILE, {"users": []})
+    return data.get("users", [])
+
+
+def save_users(users: List[Dict[str, Any]]) -> None:
+    save_json(USER_FILE, {"users": users})
+
+
+def get_current_user() -> Optional[Dict[str, Any]]:
+    username = session.get("username")
+    if not username:
+        return None
+    return next((user for user in load_users() if user.get("username") == username), None)
+
+
+def require_auth() -> Optional[Any]:
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Authentication required"}), 401
+    if user.get("disabled"):
+        session.clear()
+        return jsonify({"error": "Account disabled"}), 403
+    return None
+
+
+def require_admin() -> Optional[Any]:
+    auth = require_auth()
+    if auth:
+        return auth
+    user = get_current_user()
+    if not user or user.get("role") != "admin":
+        return jsonify({"error": "Admin privilege required"}), 403
+    return None
+
+
+def public_user_view(user: Dict[str, Any]) -> Dict[str, Any]:
+    git_username = user.get("git_username") or ""
+    git_password_encrypted = user.get("git_password_encrypted") or ""
+    return {
+        "id": user.get("id"),
+        "username": user.get("username"),
+        "email": user.get("email"),
+        "role": user.get("role", "user"),
+        "disabled": user.get("disabled", False),
+        "git_username": git_username,
+        "has_git_password": bool(git_password_encrypted),
+        "created_at": user.get("created_at"),
+        "updated_at": user.get("updated_at"),
+    }
+
+
+def sanitize_project(project: Dict[str, Any], current_user: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    owner_username = project.get("owner_username") or (current_user or {}).get("username")
+    branch_value = (project.get("branch") or "").strip()
+    return {
+        "id": project.get("id", "").strip(),
+        "name": project.get("name", "").strip(),
+        "repo_url": project.get("repo_url", "").strip(),
+        "branch": branch_value,
+        "check_interval": int(project.get("check_interval", DEFAULT_CHECK_INTERVAL)),
+        "monitor_enabled": bool(project.get("monitor_enabled", True)),
+        "email_recipients": project.get("email_recipients", []),
+        "sms_recipients": project.get("sms_recipients", []),
+        "owner_username": owner_username,
+        "review_status": project.get("review_status", "pending"),
+        "review_note": project.get("review_note", ""),
+        "created_at": project.get("created_at") or datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def visible_projects_for_user(projects: List[Dict[str, Any]], user: Dict[str, Any]) -> List[Dict[str, Any]]:
+    if user.get("role") == "admin":
+        return projects
+    return [project for project in projects if project.get("owner_username") == user.get("username")]
+
+
+def find_project_by_id(projects: List[Dict[str, Any]], project_id: str) -> Optional[Dict[str, Any]]:
+    return next((project for project in projects if project.get("id") == project_id), None)
+
+
+def upsert_project(projects: List[Dict[str, Any]], project: Dict[str, Any]) -> List[Dict[str, Any]]:
+    filtered = [item for item in projects if item.get("id") != project.get("id")]
+    filtered.append(project)
+    return filtered
 
 
 def push_event(event_type: str, payload: Dict[str, Any]) -> None:
@@ -82,31 +247,334 @@ def push_event(event_type: str, payload: Dict[str, Any]) -> None:
             EVENTS.pop(0)
 
 
-def parse_github_repo(repo_url: str) -> Optional[tuple]:
-    match = re.search(r"github\.com[:/]+([^/]+)/([^/]+?)(?:\.git)?$", repo_url)
-    if not match:
+def append_history(entry: Dict[str, Any]) -> None:
+    state = load_json(STATE_FILE, {"projects": {}, "history": []})
+    state.setdefault("history", []).insert(0, entry)
+    save_json(STATE_FILE, state)
+
+
+def make_history_entry(project_id: str, event_type: str, details: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": str(uuid.uuid4()),
+        "time": datetime.now(timezone.utc).isoformat(),
+        "project_id": project_id,
+        "event": event_type,
+        "details": details,
+    }
+
+
+def parse_repo_identity(repo_url: str) -> Optional[tuple]:
+    raw = (repo_url or "").strip()
+    if not raw:
         return None
-    return match.group(1), match.group(2)
+
+    # SCP-like SSH URL, e.g. git@host:group/repo.git
+    if re.match(r"^[^@\s]+@[^:\s]+:.+$", raw):
+        path = raw.split(":", 1)[1].strip("/")
+        parts = [p for p in path.split("/") if p]
+        if not parts:
+            return None
+        repo_name = re.sub(r"\.git$", "", parts[-1])
+        namespace = "_".join(parts[:-1]) or "default"
+        return namespace, repo_name
+
+    parsed = urlparse(raw)
+    if not parsed.scheme or not parsed.hostname:
+        return None
+    parts = [p for p in parsed.path.strip("/").split("/") if p]
+    if not parts:
+        return None
+    repo_name = re.sub(r"\.git$", "", parts[-1])
+    namespace = "_".join(parts[:-1]) or parsed.hostname.replace(".", "_")
+    return namespace, repo_name
 
 
-def github_api_get(path: str, token: Optional[str] = None) -> Dict[str, Any]:
-    headers = {"Accept": "application/vnd.github.v3+json"}
-    if token:
-        headers["Authorization"] = f"token {token}"
-    response = requests.get(f"https://api.github.com{path}", headers=headers, timeout=15)
-    response.raise_for_status()
-    return response.json()
+def normalize_repo_url(repo_url: str) -> Optional[str]:
+    raw = (repo_url or "").strip()
+    if not raw:
+        return None
+    # Keep SSH URLs as-is so local Git credential/SSH agent can handle auth.
+    if re.match(r"^[^@\s]+@[^:\s]+:.+$", raw):
+        return raw
+    parsed = urlparse(raw)
+    if parsed.scheme in ("http", "https", "ssh", "git") and parsed.hostname:
+        return raw
+    return None
 
 
-def get_remote_commit_sha(owner: str, repo: str, branch: str, token: Optional[str] = None) -> Optional[str]:
-    payload = github_api_get(f"/repos/{owner}/{repo}/commits/{branch}", token)
-    return payload.get("sha")
+def apply_git_credentials_to_repo_url(repo_url: str, git_username: str, git_password: str) -> str:
+    parsed = urlparse(repo_url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return repo_url
+    if not git_username or not git_password:
+        return repo_url
+    host = parsed.hostname
+    if parsed.port:
+        host = f"{host}:{parsed.port}"
+    userinfo = f"{quote(git_username, safe='')}:{quote(git_password, safe='')}"
+    return urlunparse(parsed._replace(netloc=f"{userinfo}@{host}"))
 
 
-def compare_commits(owner: str, repo: str, base: str, head: str, token: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def resolve_project_auth_repo_url(project: Dict[str, Any]) -> str:
+    repo_url = (project.get("repo_url") or "").strip()
+    owner_username = (project.get("owner_username") or "").strip()
+    if not repo_url or not owner_username:
+        return repo_url
+    user = next((item for item in load_users() if item.get("username") == owner_username), None)
+    if not user:
+        return repo_url
+    git_username = (user.get("git_username") or "").strip()
+    git_password = decrypt_value(user.get("git_password_encrypted") or "")
+    return apply_git_credentials_to_repo_url(repo_url, git_username, git_password)
+
+
+def get_local_repo_path(owner: str, repo: str) -> Path:
+    return ROOT / "repos" / f"{owner}_{repo}.git"
+
+
+def run_git_command(cwd: Path, args: List[str], env: Optional[Dict[str, str]] = None) -> subprocess.CompletedProcess:
+    full_env = os.environ.copy()
+    full_env["GIT_TERMINAL_PROMPT"] = "0"
+    full_env["GIT_HTTP_USER_AGENT"] = "GitHubRepoMonitor/1.0"
+    if env:
+        full_env.update(env)
+    result = subprocess.run(["git"] + args, cwd=str(cwd), env=full_env, capture_output=True, text=True)
+    if result.returncode != 0:
+        safe_args = " ".join(redact_secret_text(arg) for arg in args)
+        safe_stderr = redact_secret_text((result.stderr or "").strip())
+        raise RuntimeError(f"Git command failed ({safe_args}): {safe_stderr}")
+    return result
+
+
+def ensure_local_repo(repo_url: str, owner: str, repo: str, auth_repo_url: Optional[str] = None) -> Path:
+    sanitized_url = normalize_repo_url(auth_repo_url or repo_url)
+    if not sanitized_url:
+        raise RuntimeError("Unsupported repo URL")
+    repo_dir = get_local_repo_path(owner, repo)
+    repo_dir.parent.mkdir(parents=True, exist_ok=True)
+    if not repo_dir.exists():
+        clone_args = ["clone", "--mirror", sanitized_url, str(repo_dir)]
+        run_git_command(ROOT, clone_args)
+    else:
+        run_git_command(repo_dir, ["remote", "set-url", "origin", sanitized_url])
+        fetch_args = ["fetch", "--prune", "origin"]
+        run_git_command(repo_dir, fetch_args)
+    return repo_dir
+
+
+def resolve_branch_sha(repo_dir: Path, branch: str) -> Optional[str]:
+    ref_candidates = [
+        f"refs/heads/{branch}",
+        branch,
+        f"refs/remotes/origin/{branch}",
+        f"origin/{branch}",
+    ]
+    for ref in ref_candidates:
+        try:
+            result = run_git_command(repo_dir, ["rev-parse", "--verify", ref])
+            sha = result.stdout.strip()
+            if sha:
+                return sha
+        except Exception:
+            continue
+
+    try:
+        result = run_git_command(repo_dir, ["show-ref", "--heads", branch])
+        first_line = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
+        if first_line:
+            return first_line.split()[0]
+    except Exception:
+        pass
+
+    return None
+
+
+def get_remote_commit_sha(repo_url: str, owner: str, repo: str, branch: str, auth_repo_url: Optional[str] = None) -> Optional[str]:
+    repo_dir = ensure_local_repo(repo_url, owner, repo, auth_repo_url=auth_repo_url)
+    return resolve_branch_sha(repo_dir, branch)
+
+
+def compare_commits(repo_url: str, owner: str, repo: str, base: str, head: str, auth_repo_url: Optional[str] = None) -> Optional[Dict[str, Any]]:
     if base == head:
+        return {"commits": [], "files": []}
+    repo_dir = ensure_local_repo(repo_url, owner, repo, auth_repo_url=auth_repo_url)
+    commit_result = run_git_command(repo_dir, ["log", "--format=%H%x1f%an%x1f%s", f"{base}..{head}"])
+    commits: List[Dict[str, Any]] = []
+    if commit_result.stdout.strip():
+        for line in commit_result.stdout.strip().splitlines():
+            sha, author, message = line.split("\x1f", 2)
+            commits.append({"sha": sha, "author": author, "message": message})
+    diff_result = run_git_command(repo_dir, ["diff", "--name-status", "--diff-filter=AMD", f"{base}..{head}"])
+    files: List[Dict[str, Any]] = []
+    for line in diff_result.stdout.strip().splitlines():
+        if not line:
+            continue
+        status, path = line.split("\t", 1)
+        status_name = {
+            "A": "added",
+            "M": "modified",
+            "D": "removed",
+        }.get(status, "modified")
+        files.append({"filename": path, "status": status_name})
+    return {"commits": commits, "files": files}
+
+
+def collect_git_review_payload(repo_dir: Path, base: str, head: str, max_diff_chars: int) -> Dict[str, Any]:
+    commits: List[Dict[str, str]] = []
+    log_result = run_git_command(repo_dir, [
+        "log",
+        "--date=iso-strict",
+        "--format=%H%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%b%x1e",
+        f"{base}..{head}",
+    ])
+    raw_log = log_result.stdout or ""
+    for block in raw_log.split("\x1e"):
+        block = block.strip()
+        if not block:
+            continue
+        parts = block.split("\x1f", 5)
+        if len(parts) < 6:
+            continue
+        commits.append({
+            "sha": parts[0].strip(),
+            "author": parts[1].strip(),
+            "author_email": parts[2].strip(),
+            "date": parts[3].strip(),
+            "subject": parts[4].strip(),
+            "body": parts[5].strip(),
+        })
+
+    patch_result = run_git_command(repo_dir, [
+        "diff",
+        "--patch",
+        "--find-renames",
+        "--find-copies",
+        f"{base}..{head}",
+    ])
+    full_patch = patch_result.stdout or ""
+    truncated = False
+    if len(full_patch) > max_diff_chars:
+        full_patch = full_patch[:max_diff_chars]
+        truncated = True
+
+    return {
+        "commits": commits,
+        "patch": full_patch,
+        "patch_truncated": truncated,
+    }
+
+
+def generate_ai_git_review(project: Dict[str, Any], comparison: Dict[str, Any], last_sha: str, current_sha: str,
+                           owner: str, repo: str, auth_repo_url: Optional[str] = None) -> Optional[str]:
+    enabled = os.environ.get("AI_REVIEW_ENABLED", "true").lower() not in ("false", "0", "no")
+    if not enabled:
         return None
-    return github_api_get(f"/repos/{owner}/{repo}/compare/{base}...{head}", token)
+
+    ai_url = (os.environ.get("AI_REVIEW_URL") or "").strip()
+    ai_api_key = (os.environ.get("AI_REVIEW_API_KEY") or "").strip()
+    ai_model = (os.environ.get("AI_REVIEW_MODEL") or "llama3.3-70b-instruct").strip()
+    if not ai_url or not ai_api_key:
+        return None
+
+    timeout_seconds = int(os.environ.get("AI_REVIEW_TIMEOUT_SECONDS", "120"))
+    max_diff_chars = int(os.environ.get("AI_REVIEW_MAX_DIFF_CHARS", "120000"))
+    ca_file = (os.environ.get("AI_REVIEW_CA_FILE") or "").strip()
+
+    try:
+        repo_dir = ensure_local_repo(project.get("repo_url", ""), owner, repo, auth_repo_url=auth_repo_url)
+        review_payload = collect_git_review_payload(repo_dir, last_sha, current_sha, max_diff_chars)
+        commit_entries = review_payload.get("commits", [])
+        patch_text = review_payload.get("patch", "")
+        patch_truncated = review_payload.get("patch_truncated", False)
+
+        files = comparison.get("files", [])
+        summary = {
+            "project": project.get("name"),
+            "repository": project.get("repo_url"),
+            "branch": project.get("branch") or "(all branches)",
+            "base_commit": last_sha,
+            "head_commit": current_sha,
+            "file_changes": {
+                "added": [f.get("filename") for f in files if f.get("status") == "added"],
+                "modified": [f.get("filename") for f in files if f.get("status") == "modified"],
+                "deleted": [f.get("filename") for f in files if f.get("status") == "removed"],
+            },
+            "commits": commit_entries,
+            "patch_truncated": patch_truncated,
+        }
+
+        system_prompt = (
+            "You are a senior software reviewer and release risk assessor. "
+            "Review code and commit changes with high precision and practical engineering judgment."
+        )
+        user_prompt = (
+            "Please perform a detailed code review for the following Git changes and output in Chinese.\\n\\n"
+            "Required output sections:\\n"
+            "1) 变更概览（按提交和文件维度总结）\\n"
+            "2) 主要风险（按高/中/低严重级别，说明原因和影响范围）\\n"
+            "3) 代码质量评估（可维护性、可读性、健壮性、异常处理）\\n"
+            "4) 安全性评估（凭据、注入、权限、数据泄露、日志敏感信息）\\n"
+            "5) 测试建议（缺失的单测/集成测试/回归测试点）\\n"
+            "6) 发布建议（是否建议上线，前置条件）\\n"
+            "7) 可执行改进清单（按优先级给出具体动作）\\n\\n"
+            "Please avoid generic advice; tie each finding to concrete commits/files/diff hunks when possible.\\n"
+            "If patch is truncated, clearly mention review confidence limits.\\n\\n"
+            f"Structured summary JSON:\\n{json.dumps(summary, ensure_ascii=False, indent=2)}\\n\\n"
+            f"Unified diff patch:\\n{patch_text}"
+        )
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {ai_api_key}",
+        }
+        payload = {
+            "model": ai_model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "stream": False,
+            "max_tokens": 1800,
+            "temperature": 0.2,
+            "top_p": 1,
+            "n": 1,
+        }
+
+        verify_value: Any = ca_file if ca_file else True
+        response = requests.post(
+            ai_url,
+            headers=headers,
+            data=json.dumps(payload, ensure_ascii=False),
+            verify=verify_value,
+            timeout=timeout_seconds,
+        )
+        response.raise_for_status()
+        result = response.json()
+        content = ""
+        choices = result.get("choices", []) if isinstance(result, dict) else []
+        if choices:
+            message = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
+            content = message.get("content", "")
+        content = (content or "").strip()
+        if not content:
+            return "AI 审查未返回有效内容。"
+        return content
+    except Exception as exc:
+        return f"AI 审查失败：{exc}"
+
+
+def get_remote_branch_heads(repo_url: str, owner: str, repo: str, auth_repo_url: Optional[str] = None) -> Dict[str, str]:
+    repo_dir = ensure_local_repo(repo_url, owner, repo, auth_repo_url=auth_repo_url)
+    result = run_git_command(repo_dir, ["ls-remote", "--heads", "origin"])
+    heads: Dict[str, str] = {}
+    for line in result.stdout.strip().splitlines():
+        if not line:
+            continue
+        sha, ref = line.split("\t", 1)
+        branch_name = ref.split("refs/heads/", 1)[-1]
+        if branch_name:
+            heads[branch_name] = sha
+    return heads
 
 
 def send_email(subject: str, content: str, recipients: List[str], from_address: Optional[str] = None) -> None:
@@ -155,7 +623,8 @@ def send_sms(message: str, phones: List[str]) -> None:
             pass
 
 
-def build_report(project: Dict[str, Any], comparison: Dict[str, Any], last_sha: str, current_sha: str) -> str:
+def build_report(project: Dict[str, Any], comparison: Dict[str, Any], last_sha: str, current_sha: str,
+                 ai_review: Optional[str] = None) -> str:
     files = comparison.get("files", [])
     commits = comparison.get("commits", [])
     added = [f["filename"] for f in files if f.get("status") == "added"]
@@ -174,8 +643,8 @@ def build_report(project: Dict[str, Any], comparison: Dict[str, Any], last_sha: 
     if commits:
         lines.append("Commits:")
         for commit in commits:
-            author = commit.get("commit", {}).get("author", {}).get("name", "unknown")
-            message = commit.get("commit", {}).get("message", "").splitlines()[0]
+            author = commit.get("author", "unknown")
+            message = commit.get("message", "").splitlines()[0]
             lines.append(f"- {commit.get('sha')[:7]} | {author} | {message}")
         lines.append("")
 
@@ -190,6 +659,11 @@ def build_report(project: Dict[str, Any], comparison: Dict[str, Any], last_sha: 
     if deleted:
         lines.append("Deleted files:")
         lines.extend([f"- {path}" for path in deleted])
+        lines.append("")
+
+    if ai_review:
+        lines.append("AI Review:")
+        lines.append(ai_review)
         lines.append("")
 
     lines.append("Note: deleted files are tracked and included in alerts, but they are not suggested for restoration unless required.")
@@ -229,24 +703,91 @@ def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token:
         "status": "unknown",
         "last_check": datetime.now(timezone.utc).isoformat(),
         "monitor_enabled": project.get("monitor_enabled", True),
+        "new_commits": 0,
+        "added_files": 0,
+        "modified_files": 0,
+        "deleted_files": 0,
+        "files": {"added": [], "modified": [], "deleted": []},
+        "alert_sent": False,
     }
 
     if not project.get("monitor_enabled", True):
         result["status"] = "paused"
         return result
 
-    repo_info = parse_github_repo(project.get("repo_url", ""))
+    repo_info = parse_repo_identity(project.get("repo_url", ""))
     if not repo_info:
         result["status"] = "invalid_repo"
         result["error"] = "Unsupported repo URL"
         return result
 
     owner, repo = repo_info
-    branch = project.get("branch", "master")
-    current_sha = get_remote_commit_sha(owner, repo, branch, token=token)
-    if not current_sha:
-        result["status"] = "commit_not_found"
-        result["error"] = "Failed to read remote commit"
+    auth_repo_url = resolve_project_auth_repo_url(project)
+    branch = (project.get("branch") or "").strip()
+    try:
+        if branch:
+            current_sha = get_remote_commit_sha(project.get("repo_url", ""), owner, repo, branch, auth_repo_url=auth_repo_url)
+        else:
+            current_sha = None
+            current_heads = get_remote_branch_heads(project.get("repo_url", ""), owner, repo, auth_repo_url=auth_repo_url)
+            previous_heads = project_state.get("last_branch_heads", {}) if isinstance(project_state.get("last_branch_heads", {}), dict) else {}
+            result["branch_mode"] = "all"
+            result["current_branch_heads"] = current_heads
+            result["last_branch_heads"] = previous_heads
+    except Exception as exc:
+        result["status"] = "remote_check_failed"
+        result["error"] = str(exc)
+        return result
+
+    if branch:
+        if not current_sha:
+            result["status"] = "commit_not_found"
+            result["error"] = "Failed to read remote commit"
+            return result
+    else:
+        current_heads = result.get("current_branch_heads", {})
+        previous_heads = project_state.get("last_branch_heads", {}) if isinstance(project_state.get("last_branch_heads", {}), dict) else {}
+        current_signature = json.dumps(sorted(current_heads.items()), ensure_ascii=False)
+        previous_signature = json.dumps(sorted(previous_heads.items()), ensure_ascii=False)
+        result["last_commit"] = current_signature
+        result["new_commits"] = len([name for name, sha in current_heads.items() if previous_heads.get(name) != sha])
+        result["added_files"] = 0
+        result["modified_files"] = 0
+        result["deleted_files"] = 0
+        result["files"] = {"added": [], "modified": [], "deleted": []}
+        if not previous_heads:
+            result["status"] = "baseline_initialized"
+            return result
+        if current_signature == previous_signature:
+            result["status"] = "no_changes"
+            return result
+        result["status"] = "changed"
+        if evaluate_alert(project, result):
+            report = [
+                f"Project: {project.get('name')}",
+                f"Repository: {project.get('repo_url')}",
+                "Branch mode: all branches",
+                "Changed branches:",
+            ]
+            changed_branches = [name for name, sha in current_heads.items() if previous_heads.get(name) != sha]
+            if changed_branches:
+                report.extend([f"- {name}" for name in changed_branches])
+            subject = f"[Monitor Alert] {project.get('name')} all branches changed"
+            recipients = project.get("email_recipients") or [os.environ.get("MONITOR_EMAIL_TO", DEFAULT_EMAIL_TO)]
+            if isinstance(recipients, str):
+                recipients = [recipients]
+            try:
+                send_email(subject, "\n".join(report), recipients)
+                sms_recipients = project.get("sms_recipients", [])
+                if sms_recipients:
+                    send_sms("\n".join(report), sms_recipients)
+                result["alert_sent"] = True
+                log_mail(recipients, subject, "\n".join(report), "sent")
+            except Exception as exc:
+                result["alert_error"] = str(exc)
+                log_mail(recipients, subject, "\n".join(report), "failed", str(exc))
+        else:
+            log_mail([os.environ.get("MONITOR_EMAIL_TO", DEFAULT_EMAIL_TO)], f"[Monitor Notice] {project.get('name')} all branches check completed", "No email sent because no change was detected.", "skipped")
         return result
 
     last_sha = project_state.get("last_commit")
@@ -266,7 +807,12 @@ def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token:
         result["status"] = "no_changes"
         return result
 
-    comparison = compare_commits(owner, repo, last_sha, current_sha, token=token)
+    try:
+        comparison = compare_commits(project.get("repo_url", ""), owner, repo, last_sha, current_sha, auth_repo_url=auth_repo_url)
+    except Exception as exc:
+        result["status"] = "compare_failed"
+        result["error"] = str(exc)
+        return result
     if not comparison:
         result["status"] = "compare_failed"
         result["error"] = "Comparison request failed"
@@ -285,8 +831,10 @@ def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token:
     result["status"] = "changed"
 
     if evaluate_alert(project, result):
-        report = build_report(project, comparison, last_sha, current_sha)
-        subject = f"[Monitor Alert] {project.get('name')} {branch} changed"
+        ai_review = generate_ai_git_review(project, comparison, last_sha, current_sha, owner, repo, auth_repo_url=auth_repo_url)
+        report = build_report(project, comparison, last_sha, current_sha, ai_review=ai_review)
+        branch_label = branch or "all branches"
+        subject = f"[Monitor Alert] {project.get('name')} {branch_label} changed"
         recipients = project.get("email_recipients") or [os.environ.get("MONITOR_EMAIL_TO", DEFAULT_EMAIL_TO)]
         if isinstance(recipients, str):
             recipients = [recipients]
@@ -301,7 +849,8 @@ def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token:
             result["alert_error"] = str(exc)
             log_mail(recipients, subject, report, "failed", str(exc))
     else:
-        log_mail([os.environ.get("MONITOR_EMAIL_TO", DEFAULT_EMAIL_TO)], f"[Monitor Notice] {project.get('name')} {branch} check completed", "No email sent because no change was detected.", "skipped")
+        branch_label = branch or "all branches"
+        log_mail([os.environ.get("MONITOR_EMAIL_TO", DEFAULT_EMAIL_TO)], f"[Monitor Notice] {project.get('name')} {branch_label} check completed", "No email sent because no change was detected.", "skipped")
 
     return result
 
@@ -321,7 +870,6 @@ def monitor_loop() -> None:
         ensure_files()
         config = load_json(CONFIG_FILE, {"projects": []})
         state = load_json(STATE_FILE, {"projects": {}})
-        token = os.environ.get("GITHUB_TOKEN")
         now = datetime.now(timezone.utc).timestamp()
         updated = False
 
@@ -339,9 +887,32 @@ def monitor_loop() -> None:
             if elapsed < interval:
                 continue
 
-            result = check_project(project, project_state, token=token)
+            try:
+                result = check_project(project, project_state)
+            except Exception as exc:
+                result = {
+                    "status": "monitor_exception",
+                    "last_check": datetime.now(timezone.utc).isoformat(),
+                    "monitor_enabled": project.get("monitor_enabled", True),
+                    "error": str(exc),
+                    "new_commits": 0,
+                    "added_files": 0,
+                    "modified_files": 0,
+                    "deleted_files": 0,
+                    "files": {"added": [], "modified": [], "deleted": []},
+                    "alert_sent": False,
+                }
             state.setdefault("projects", {})[project_id] = {**project_state, **result}
             save_json(STATE_FILE, state)
+            append_history(make_history_entry(project_id, "check", {
+                "status": result.get("status"),
+                "error": result.get("error"),
+                "new_commits": result.get("new_commits", 0),
+                "added_files": result.get("added_files", 0),
+                "modified_files": result.get("modified_files", 0),
+                "deleted_files": result.get("deleted_files", 0),
+                "alert_sent": result.get("alert_sent", False),
+            }))
             push_event("project_update", {"project_id": project_id, "result": result})
             updated = True
 
@@ -359,57 +930,361 @@ def health() -> Any:
     return jsonify({"status": "ok"})
 
 
+@app.route("/api/auth/register", methods=["POST"])
+def api_register() -> Any:
+    ensure_files()
+    payload = request.get_json() or {}
+    username = (payload.get("username") or "").strip()
+    password = payload.get("password") or ""
+    email = (payload.get("email") or "").strip().lower()
+    if not username or not password or not email:
+        return jsonify({"error": "Username, password and email are required"}), 400
+    users = load_users()
+    if any(user.get("username", "").lower() == username.lower() for user in users):
+        return jsonify({"error": "Username already exists"}), 409
+    if any(user.get("email", "").lower() == email.lower() for user in users):
+        return jsonify({"error": "Email already exists"}), 409
+    now = datetime.now(timezone.utc).isoformat()
+    user = {
+        "id": str(uuid.uuid4()),
+        "username": username,
+        "email": email,
+        "password_hash": generate_password_hash(password),
+        "role": "user",
+        "disabled": False,
+        "created_at": now,
+        "updated_at": now,
+    }
+    users.append(user)
+    save_users(users)
+    return jsonify(public_user_view(user)), 201
+
+
+@app.route("/api/auth/login", methods=["POST"])
+def api_login() -> Any:
+    ensure_files()
+    payload = request.get_json() or {}
+    username = (payload.get("username") or "").strip()
+    password = payload.get("password") or ""
+    if not username or not password:
+        return jsonify({"error": "Username and password are required"}), 400
+    user = next((item for item in load_users() if item.get("username", "").lower() == username.lower()), None)
+    if not user or not check_password_hash(user.get("password_hash", ""), password):
+        return jsonify({"error": "Username or password is incorrect"}), 401
+    if user.get("disabled"):
+        return jsonify({"error": "Account disabled"}), 403
+    session.clear()
+    session["username"] = user.get("username")
+    return jsonify({"user": public_user_view(user)})
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def api_logout() -> Any:
+    session.clear()
+    return jsonify({"status": "logged_out"})
+
+
+@app.route("/api/auth/me", methods=["GET"])
+def api_me() -> Any:
+    auth = require_auth()
+    if auth:
+        return auth
+    user = get_current_user()
+    return jsonify({"user": public_user_view(user or {})})
+
+
+@app.route("/api/users/me", methods=["PUT", "DELETE"])
+def api_my_profile() -> Any:
+    auth = require_auth()
+    if auth:
+        return auth
+    current_user = get_current_user()
+    users = load_users()
+    user = next((item for item in users if item.get("username") == current_user.get("username")), None)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    if request.method == "DELETE":
+        if not request.get_json(silent=True) or not request.get_json().get("confirm"):
+            return jsonify({"error": "Confirmation required"}), 400
+        if user.get("role") == "admin" and sum(1 for item in users if item.get("role") == "admin") <= 1:
+            return jsonify({"error": "Cannot delete the last admin"}), 400
+        users = [item for item in users if item.get("id") != user.get("id")]
+        save_users(users)
+        session.clear()
+        return jsonify({"status": "deleted"})
+
+    payload = request.get_json() or {}
+    new_username = (payload.get("username") or user.get("username") or "").strip()
+    new_email = (payload.get("email") or user.get("email") or "").strip().lower()
+    if not new_username or not new_email:
+        return jsonify({"error": "Username and email are required"}), 400
+    if any(item.get("id") != user.get("id") and item.get("username", "").lower() == new_username.lower() for item in users):
+        return jsonify({"error": "Username already exists"}), 409
+    if any(item.get("id") != user.get("id") and item.get("email", "").lower() == new_email.lower() for item in users):
+        return jsonify({"error": "Email already exists"}), 409
+    old_password = payload.get("old_password") or ""
+    new_password = payload.get("new_password") or ""
+    if new_password:
+        if not old_password or not check_password_hash(user.get("password_hash", ""), old_password):
+            return jsonify({"error": "Old password is incorrect"}), 400
+        user["password_hash"] = generate_password_hash(new_password)
+    git_username = (payload.get("git_username") or "").strip()
+    git_password = payload.get("git_password")
+    clear_git_password = bool(payload.get("clear_git_password", False))
+    user["git_username"] = git_username
+    if clear_git_password:
+        user["git_password_encrypted"] = ""
+    elif git_password is not None:
+        user["git_password_encrypted"] = encrypt_value(git_password)
+    user["username"] = new_username
+    user["email"] = new_email
+    user["updated_at"] = datetime.now(timezone.utc).isoformat()
+    save_users(users)
+    session["username"] = user.get("username")
+    return jsonify({"user": public_user_view(user)})
+
+
+@app.route("/api/admin/users", methods=["GET", "POST"])
+def api_admin_users() -> Any:
+    auth = require_admin()
+    if auth:
+        return auth
+    users = load_users()
+    if request.method == "POST":
+        payload = request.get_json() or {}
+        target_username = (payload.get("username") or "").strip()
+        target_email = (payload.get("email") or "").strip().lower()
+        target_password = payload.get("password") or ""
+        if not target_username or not target_email or not target_password:
+            return jsonify({"error": "Username, email and password are required"}), 400
+        if any(user.get("username", "").lower() == target_username.lower() for user in users):
+            return jsonify({"error": "Username already exists"}), 409
+        if any(user.get("email", "").lower() == target_email.lower() for user in users):
+            return jsonify({"error": "Email already exists"}), 409
+        now = datetime.now(timezone.utc).isoformat()
+        user = {
+            "id": str(uuid.uuid4()),
+            "username": target_username,
+            "email": target_email,
+            "password_hash": generate_password_hash(target_password),
+            "role": payload.get("role", "user") if payload.get("role") in ("admin", "user") else "user",
+            "disabled": bool(payload.get("disabled", False)),
+            "created_at": now,
+            "updated_at": now,
+        }
+        users.append(user)
+        save_users(users)
+        return jsonify(public_user_view(user)), 201
+    return jsonify([public_user_view(user) for user in users])
+
+
+@app.route("/api/admin/users/<user_id>", methods=["PUT", "DELETE"])
+def api_admin_user_detail(user_id: str) -> Any:
+    auth = require_admin()
+    if auth:
+        return auth
+    users = load_users()
+    user = next((item for item in users if item.get("id") == user_id), None)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    if request.method == "DELETE":
+        if user.get("role") == "admin" and sum(1 for item in users if item.get("role") == "admin") <= 1:
+            return jsonify({"error": "Cannot delete the last admin"}), 400
+        users = [item for item in users if item.get("id") != user_id]
+        save_users(users)
+        return jsonify({"status": "deleted"})
+    payload = request.get_json() or {}
+    new_username = (payload.get("username") or user.get("username") or "").strip()
+    new_email = (payload.get("email") or user.get("email") or "").strip().lower()
+    if any(item.get("id") != user_id and item.get("username", "").lower() == new_username.lower() for item in users):
+        return jsonify({"error": "Username already exists"}), 409
+    if any(item.get("id") != user_id and item.get("email", "").lower() == new_email.lower() for item in users):
+        return jsonify({"error": "Email already exists"}), 409
+    if payload.get("password"):
+        user["password_hash"] = generate_password_hash(payload.get("password"))
+    if payload.get("role") in ("admin", "user"):
+        user["role"] = payload.get("role")
+    if "disabled" in payload:
+        user["disabled"] = bool(payload.get("disabled"))
+    user["username"] = new_username
+    user["email"] = new_email
+    user["updated_at"] = datetime.now(timezone.utc).isoformat()
+    save_users(users)
+    return jsonify(public_user_view(user))
+
+
 @app.route("/api/projects", methods=["GET", "POST"])
 def api_projects() -> Any:
     ensure_files()
     config = load_json(CONFIG_FILE, {"projects": []})
+    auth = require_auth()
+    if auth:
+        return auth
+    current_user = get_current_user() or {}
+    projects = config.get("projects", [])
     if request.method == "POST":
         project = request.get_json() or {}
+        # Validate required fields
         if not project.get("id"):
             return jsonify({"error": "Project id is required"}), 400
-        project["monitor_enabled"] = project.get("monitor_enabled", True)
-        project["check_interval"] = int(project.get("check_interval", DEFAULT_CHECK_INTERVAL))
-        projects = [p for p in config.get("projects", []) if p.get("id") != project["id"]]
-        projects.append(project)
+        if not project.get("name"):
+            return jsonify({"error": "Project name is required"}), 400
+        if not project.get("repo_url"):
+            return jsonify({"error": "Repository URL is required"}), 400
+        existing = find_project_by_id(projects, project["id"])
+        if existing and current_user.get("role") != "admin" and existing.get("owner_username") != current_user.get("username"):
+            return jsonify({"error": "You can only edit your own project"}), 403
+        sanitized = sanitize_project(project, current_user)
+        if existing:
+            sanitized["owner_username"] = existing.get("owner_username")
+            sanitized["created_at"] = existing.get("created_at", sanitized["created_at"])
+        projects = upsert_project(projects, sanitized)
         config["projects"] = projects
         save_json(CONFIG_FILE, config)
-        push_event("config_change", {"project_id": project["id"], "action": "saved"})
-        return jsonify(project), 201
-    return jsonify(config.get("projects", []))
+        push_event("config_change", {"project_id": sanitized["id"], "action": "saved"})
+        append_history(make_history_entry(sanitized["id"], "config_saved", {
+            "name": sanitized.get("name"),
+            "repo_url": sanitized.get("repo_url"),
+            "branch": sanitized.get("branch"),
+            "check_interval": sanitized.get("check_interval"),
+            "monitor_enabled": sanitized.get("monitor_enabled"),
+            "owner_username": sanitized.get("owner_username"),
+        }))
+        return jsonify(sanitized), 201
+    return jsonify(visible_projects_for_user(projects, current_user))
 
 
 @app.route("/api/projects/<project_id>", methods=["PUT", "DELETE"])
 def api_project_detail(project_id: str) -> Any:
     ensure_files()
+    auth = require_auth()
+    if auth:
+        return auth
+    current_user = get_current_user() or {}
     config = load_json(CONFIG_FILE, {"projects": []})
-    projects = [p for p in config.get("projects", []) if p.get("id") != project_id]
+    projects = config.get("projects", [])
+    project = find_project_by_id(projects, project_id)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    if current_user.get("role") != "admin" and project.get("owner_username") != current_user.get("username"):
+        return jsonify({"error": "You can only manage your own project"}), 403
     if request.method == "DELETE":
+        projects = [p for p in projects if p.get("id") != project_id]
         config["projects"] = projects
         save_json(CONFIG_FILE, config)
         push_event("config_change", {"project_id": project_id, "action": "deleted"})
+        append_history(make_history_entry(project_id, "config_deleted", {"project_id": project_id}))
         return jsonify({"status": "deleted"})
 
     project = request.get_json() or {}
     project["id"] = project_id
-    project["monitor_enabled"] = project.get("monitor_enabled", True)
-    project["check_interval"] = int(project.get("check_interval", DEFAULT_CHECK_INTERVAL))
-    projects.append(project)
+    sanitized = sanitize_project(project, current_user)
+    sanitized["owner_username"] = project.get("owner_username") or current_user.get("username")
+    sanitized["created_at"] = project.get("created_at") or project.get("createdAt") or datetime.now(timezone.utc).isoformat()
+    projects = upsert_project(projects, sanitized)
     config["projects"] = projects
     save_json(CONFIG_FILE, config)
     push_event("config_change", {"project_id": project_id, "action": "updated"})
-    return jsonify(project)
+    append_history(make_history_entry(project_id, "config_saved", {
+        "name": sanitized.get("name"),
+        "repo_url": sanitized.get("repo_url"),
+        "branch": sanitized.get("branch"),
+        "check_interval": sanitized.get("check_interval"),
+        "monitor_enabled": sanitized.get("monitor_enabled"),
+        "owner_username": sanitized.get("owner_username"),
+    }))
+    return jsonify(sanitized)
+
+
+@app.route("/api/admin/projects", methods=["GET"])
+def api_admin_projects() -> Any:
+    auth = require_admin()
+    if auth:
+        return auth
+    config = load_json(CONFIG_FILE, {"projects": []})
+    return jsonify(config.get("projects", []))
+
+
+@app.route("/api/admin/projects/<project_id>", methods=["PUT", "DELETE"])
+def api_admin_project_detail(project_id: str) -> Any:
+    auth = require_admin()
+    if auth:
+        return auth
+    config = load_json(CONFIG_FILE, {"projects": []})
+    projects = config.get("projects", [])
+    project = find_project_by_id(projects, project_id)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    if request.method == "DELETE":
+        projects = [item for item in projects if item.get("id") != project_id]
+        config["projects"] = projects
+        save_json(CONFIG_FILE, config)
+        push_event("config_change", {"project_id": project_id, "action": "deleted"})
+        append_history(make_history_entry(project_id, "config_deleted", {"project_id": project_id}))
+        return jsonify({"status": "deleted"})
+    payload = request.get_json() or {}
+    sanitized = sanitize_project({**project, **payload, "id": project_id}, get_current_user())
+    if payload.get("owner_username"):
+        sanitized["owner_username"] = payload.get("owner_username")
+    if payload.get("review_status") in ("pending", "approved", "rejected"):
+        sanitized["review_status"] = payload.get("review_status")
+    if "review_note" in payload:
+        sanitized["review_note"] = payload.get("review_note") or ""
+    projects = upsert_project(projects, sanitized)
+    config["projects"] = projects
+    save_json(CONFIG_FILE, config)
+    push_event("config_change", {"project_id": project_id, "action": "updated"})
+    append_history(make_history_entry(project_id, "config_saved", {
+        "name": sanitized.get("name"),
+        "repo_url": sanitized.get("repo_url"),
+        "branch": sanitized.get("branch"),
+        "check_interval": sanitized.get("check_interval"),
+        "monitor_enabled": sanitized.get("monitor_enabled"),
+        "owner_username": sanitized.get("owner_username"),
+        "review_status": sanitized.get("review_status"),
+    }))
+    return jsonify(sanitized)
 
 
 @app.route("/api/state", methods=["GET"])
 def api_state() -> Any:
     ensure_files()
-    state = load_json(STATE_FILE, {"projects": {}})
+    auth = require_auth()
+    if auth:
+        return auth
+    state = load_json(STATE_FILE, {"projects": {}, "history": []})
     return jsonify(state.get("projects", {}))
+
+
+@app.route("/api/state/history", methods=["GET"])
+def api_state_history() -> Any:
+    ensure_files()
+    auth = require_auth()
+    if auth:
+        return auth
+    state = load_json(STATE_FILE, {"projects": {}, "history": []})
+    config = load_json(CONFIG_FILE, {"projects": []})
+    project_id = request.args.get("project_id")
+    history = state.get("history", [])
+    current_user = get_current_user() or {}
+    if current_user.get("role") != "admin":
+        visible_project_ids = {
+            project.get("id")
+            for project in config.get("projects", [])
+            if project.get("owner_username") == current_user.get("username")
+        }
+        history = [entry for entry in history if entry.get("project_id") in visible_project_ids]
+    if project_id:
+        history = [entry for entry in history if entry.get("project_id") == project_id]
+    return jsonify(history)
 
 
 @app.route("/api/mail_logs", methods=["GET", "DELETE"])
 def api_mail_logs() -> Any:
     ensure_files()
+    auth = require_admin()
+    if auth:
+        return auth
     mail_log = load_json(MAIL_LOG_FILE, {"logs": []})
     if request.method == "DELETE":
         save_json(MAIL_LOG_FILE, {"logs": []})
@@ -421,6 +1296,9 @@ def api_mail_logs() -> Any:
 @app.route("/api/mail_logs/<log_id>", methods=["DELETE"])
 def api_mail_log_detail(log_id: str) -> Any:
     ensure_files()
+    auth = require_admin()
+    if auth:
+        return auth
     mail_log = load_json(MAIL_LOG_FILE, {"logs": []})
     logs = [entry for entry in mail_log.get("logs", []) if entry.get("id") != log_id]
     save_json(MAIL_LOG_FILE, {"logs": logs})
@@ -431,15 +1309,29 @@ def api_mail_log_detail(log_id: str) -> Any:
 @app.route("/api/check/<project_id>", methods=["POST"])
 def api_check_project(project_id: str) -> Any:
     ensure_files()
+    auth = require_auth()
+    if auth:
+        return auth
+    current_user = get_current_user() or {}
     config = load_json(CONFIG_FILE, {"projects": []})
     project = next((p for p in config.get("projects", []) if p.get("id") == project_id), None)
     if not project:
         return jsonify({"error": "Project not found"}), 404
-    state = load_json(STATE_FILE, {"projects": {}})
+    if current_user.get("role") != "admin" and project.get("owner_username") != current_user.get("username"):
+        return jsonify({"error": "You can only check your own project"}), 403
+    state = load_json(STATE_FILE, {"projects": {}, "history": []})
     project_state = state.get("projects", {}).get(project_id, {})
-    result = check_project(project, project_state, token=os.environ.get("GITHUB_TOKEN"))
+    result = check_project(project, project_state)
     state.setdefault("projects", {})[project_id] = {**project_state, **result}
     save_json(STATE_FILE, state)
+    append_history(make_history_entry(project_id, "check", {
+        "status": result.get("status"),
+        "new_commits": result.get("new_commits"),
+        "added_files": result.get("added_files"),
+        "modified_files": result.get("modified_files"),
+        "deleted_files": result.get("deleted_files"),
+        "alert_sent": result.get("alert_sent"),
+    }))
     push_event("project_update", {"project_id": project_id, "result": result})
     return jsonify(result)
 
