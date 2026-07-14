@@ -788,6 +788,7 @@ def collect_repo_structure(repo_dir: Path, max_files: int = 400) -> Dict[str, An
             top_level_files.append(path)
 
     return {
+        "all_files": all_files,
         "tracked_file_count": len(all_files),
         "tracked_files": tracked_files,
         "truncated": len(all_files) > max_files,
@@ -828,6 +829,7 @@ def load_ai_review_skill() -> str:
 def build_review_summary(project: Dict[str, Any], comparison: Dict[str, Any], review_payload: Dict[str, Any],
                          last_sha: str, current_sha: str, repo_structure: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     files = comparison.get("files", [])
+    repo_structure = repo_structure or {}
     return {
         "project": project.get("name"),
         "repository": project.get("repo_url"),
@@ -849,13 +851,94 @@ def build_review_summary(project: Dict[str, Any], comparison: Dict[str, Any], re
         "file_stats": review_payload.get("file_stats", []),
         "commits": review_payload.get("commits", []),
         "patch_truncated": review_payload.get("patch_truncated", False),
-        "repo_structure": repo_structure or {},
+        "repo_structure": {
+            "tracked_file_count": repo_structure.get("tracked_file_count", 0),
+            "tracked_files": repo_structure.get("tracked_files", []),
+            "truncated": repo_structure.get("truncated", False),
+            "top_level_dirs": repo_structure.get("top_level_dirs", []),
+            "top_level_files": repo_structure.get("top_level_files", []),
+        },
     }
+
+
+def build_python_module_index(tracked_files: List[str]) -> Dict[str, str]:
+    module_index: Dict[str, str] = {}
+    for path in tracked_files:
+        if not path.endswith(".py"):
+            continue
+        module_name = path[:-3].replace("/", ".")
+        if module_name.endswith(".__init__"):
+            module_name = module_name[:-9]
+        if module_name:
+            module_index[module_name] = path
+    return module_index
+
+
+def extract_local_python_import_paths(content: str, module_index: Dict[str, str]) -> List[str]:
+    import_paths: List[str] = []
+    for raw_line in (content or "").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        from_match = re.match(r"^from\s+([A-Za-z_][\w\.]*)\s+import\s+", line)
+        if from_match:
+            module_name = from_match.group(1)
+            resolved = module_index.get(module_name)
+            if resolved and resolved not in import_paths:
+                import_paths.append(resolved)
+            continue
+        import_match = re.match(r"^import\s+(.+)$", line)
+        if not import_match:
+            continue
+        for chunk in import_match.group(1).split(","):
+            module_name = chunk.strip().split(" as ", 1)[0].strip()
+            resolved = module_index.get(module_name)
+            if resolved and resolved not in import_paths:
+                import_paths.append(resolved)
+    return import_paths
+
+
+def collect_related_review_files(changed_files: List[str], changed_snapshots: List[Dict[str, Any]],
+                                 repo_structure: Dict[str, Any], max_related: int = 10) -> List[Dict[str, str]]:
+    tracked_files = repo_structure.get("all_files", []) if isinstance(repo_structure, dict) else []
+    tracked_set = set(tracked_files)
+    module_index = build_python_module_index(tracked_files)
+    related_files: List[Dict[str, str]] = []
+    added_paths: set = set(changed_files)
+
+    def add_related(path: str, reason: str) -> None:
+        if not path or path in added_paths or path not in tracked_set or len(related_files) >= max_related:
+            return
+        related_files.append({"file": path, "reason": reason})
+        added_paths.add(path)
+
+    for snapshot in changed_snapshots:
+        path = str(snapshot.get("file") or "").strip()
+        if not path:
+            continue
+        if "/" in path:
+            dir_path = path.rsplit("/", 1)[0]
+            init_path = f"{dir_path}/__init__.py"
+            add_related(init_path, "same_dir_package")
+            sibling_candidates = [
+                candidate for candidate in tracked_files
+                if candidate.startswith(f"{dir_path}/") and candidate.endswith(".py") and candidate != path and not candidate.endswith("/__init__.py")
+            ]
+            for sibling in sibling_candidates[:2]:
+                add_related(sibling, "same_dir_context")
+        if path.endswith(".py"):
+            for import_path in extract_local_python_import_paths(str(snapshot.get("content") or ""), module_index):
+                add_related(import_path, "import_dependency")
+        if len(related_files) >= max_related:
+            break
+
+    return related_files
 
 
 def collect_head_file_snapshots(repo_dir: Path, head: str, files: List[str],
                                 max_files: int = 12, max_file_chars: int = 5000,
-                                total_chars_limit: int = 45000) -> List[Dict[str, Any]]:
+                                total_chars_limit: int = 45000,
+                                metadata_map: Optional[Dict[str, Dict[str, str]]] = None) -> List[Dict[str, Any]]:
     snapshots: List[Dict[str, Any]] = []
     used_chars = 0
     seen: set = set()
@@ -884,11 +967,14 @@ def collect_head_file_snapshots(repo_dir: Path, head: str, files: List[str],
             content = content[:remaining]
             truncated = True
         used_chars += len(content)
+        metadata = metadata_map.get(path, {}) if isinstance(metadata_map, dict) else {}
         snapshots.append({
             "file": path,
             "head_commit": head,
             "content": content,
             "truncated": truncated,
+            "context_role": metadata.get("context_role", "changed"),
+            "context_reason": metadata.get("context_reason", "changed_file"),
         })
     return snapshots
 
@@ -977,6 +1063,7 @@ def generate_direct_ai_git_review(ai_url: str, ai_api_key: str, ai_model: str, t
         "7) 可执行改进清单（按优先级给出具体动作）\n\n"
         "Please avoid generic advice; tie each finding to concrete commits/files/diff hunks when possible.\n"
         "Use head-commit file snapshots as the source of truth for final-state validation. "
+        "Snapshots with context_role=related are dependency or same-directory context files and should be used to understand how the changed code fits into the project. "
         "If a bug appears in intermediate commits but is already fixed in the final head state, do not report it as an active finding.\n"
         "If patch is truncated, clearly mention review confidence limits.\n\n"
         f"{build_review_source_context(summary, patch_text, head_snapshots)}"
@@ -1022,6 +1109,7 @@ def generate_agentic_ai_git_review(ai_url: str, ai_api_key: str, ai_model: str, 
         "}\n\n"
         "Rules:\n"
         "- Only report issues that are supported by the summary/diff and validated against head_commit snapshots.\n"
+        "- Read changed snapshots together with related snapshots before judging impact; use related snapshots to understand dependencies, imports, and surrounding module structure.\n"
         "- Final-state-first: findings must reflect bugs that still exist in the head_commit final code.\n"
         "- If an issue appears in intermediate commits but is fixed in head_commit, do not list it as a finding; at most mention as `already_fixed_observation`.\n"
         "- A `high` finding requires concrete final-state evidence (file/function/line-context) from head_commit snapshots. Without final-state evidence, do not use high.\n"
@@ -1104,7 +1192,38 @@ def generate_ai_git_review(project: Dict[str, Any], comparison: Dict[str, Any], 
             for item in comparison.get("files", [])
             if item.get("status") in ("added", "modified")
         ]
-        head_snapshots = collect_head_file_snapshots(repo_dir, current_sha, changed_files)
+        changed_metadata = {
+            path: {"context_role": "changed", "context_reason": "changed_file"}
+            for path in changed_files
+        }
+        changed_snapshots = collect_head_file_snapshots(
+            repo_dir,
+            current_sha,
+            changed_files,
+            max_files=8,
+            max_file_chars=5000,
+            total_chars_limit=28000,
+            metadata_map=changed_metadata,
+        )
+        related_files = collect_related_review_files(changed_files, changed_snapshots, repo_structure, max_related=8)
+        related_metadata = {
+            item.get("file", ""): {
+                "context_role": "related",
+                "context_reason": item.get("reason", "related_context"),
+            }
+            for item in related_files
+            if item.get("file")
+        }
+        related_snapshots = collect_head_file_snapshots(
+            repo_dir,
+            current_sha,
+            [item.get("file", "") for item in related_files],
+            max_files=8,
+            max_file_chars=3500,
+            total_chars_limit=18000,
+            metadata_map=related_metadata,
+        )
+        head_snapshots = changed_snapshots + related_snapshots
         provider = (os.environ.get("AI_REVIEW_PROVIDER") or "agent").strip().lower()
         if provider in ("agent", "skill-agent", "skill_agent", "agentic"):
             content = generate_agentic_ai_git_review(
