@@ -64,12 +64,22 @@
             align-items: center;
             gap: 16px;
             flex-wrap: wrap;
-            margin-bottom: 18px;
+            margin-bottom: 0;
             padding: 14px 18px;
             background: rgba(255, 255, 255, 0.76);
             border: 1px solid rgba(14, 116, 144, 0.08);
             border-radius: 18px;
             backdrop-filter: blur(10px);
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(1280px, calc(100% - 20px));
+            z-index: 40;
+        }
+
+        #appContent {
+            padding-top: 92px;
         }
 
         .topbar .menu {
@@ -120,6 +130,15 @@
             grid-template-columns: 1fr;
             max-width: 540px;
             margin: 0 auto;
+            width: 100%;
+        }
+
+        #authPanel .panel-header {
+            justify-content: center;
+        }
+
+        #authPanel .panel-header h2 {
+            text-align: center;
             width: 100%;
         }
 
@@ -181,6 +200,10 @@
             margin-top: 6px;
         }
 
+        .note-right {
+            text-align: right;
+        }
+
         .inline-select {
             width: 100%;
             border: 1px solid #cad8e2;
@@ -189,6 +212,71 @@
             font-size: 14px;
             color: #111827;
             background: #f9fcfd;
+        }
+
+        .multi-dropdown {
+            position: relative;
+            width: 100%;
+        }
+
+        .multi-dropdown-trigger {
+            width: 100%;
+            border: 1px solid #cad8e2;
+            border-radius: 12px;
+            padding: 10px 12px;
+            font-size: 14px;
+            color: #111827;
+            background: #f9fcfd;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            user-select: none;
+        }
+
+        .multi-dropdown-placeholder {
+            color: #637287;
+        }
+
+        .multi-dropdown-panel {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            right: 0;
+            z-index: 50;
+            border: 1px solid #cad8e2;
+            border-radius: 12px;
+            background: #ffffff;
+            box-shadow: 0 12px 24px rgba(0, 18, 39, 0.12);
+            max-height: 220px;
+            overflow: auto;
+            padding: 8px;
+            display: none;
+        }
+
+        .multi-dropdown.open .multi-dropdown-panel {
+            display: block;
+        }
+
+        .multi-dropdown-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 6px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #1f2d3d;
+        }
+
+        .multi-dropdown-option:hover {
+            background: #f3f8fb;
+        }
+
+        .multi-dropdown-option input[type="checkbox"] {
+            width: auto;
+            margin: 0;
         }
 
         .panel-header {
@@ -270,6 +358,10 @@
             gap: 10px;
             flex-wrap: wrap;
             margin-top: 12px;
+        }
+
+        .actions-right {
+            justify-content: flex-end;
         }
 
         button {
@@ -512,6 +604,14 @@
             .header h1 {
                 font-size: 28px;
             }
+            .topbar {
+                top: 8px;
+                width: calc(100% - 16px);
+            }
+
+            #appContent {
+                padding-top: 102px;
+            }
         }
     </style>
 </head>
@@ -537,7 +637,7 @@
                             <input id="loginPassword" type="password" autocomplete="current-password" placeholder="请输入密码" />
                         </div>
                     </div>
-                    <div class="actions">
+                    <div class="actions actions-right">
                         <button class="btn-primary" onclick="login()">登录</button>
                     </div>
                     <div class="auth-switch">
@@ -560,7 +660,7 @@
                             <input id="registerPassword" type="password" autocomplete="new-password" placeholder="至少 6 位更安全" />
                         </div>
                     </div>
-                    <div class="actions">
+                    <div class="actions actions-right">
                         <button class="btn-primary" onclick="registerUser()">注册</button>
                         <button class="btn-secondary" type="button" onclick="switchAuthMode('login')">返回登录</button>
                     </div>
@@ -573,7 +673,7 @@
                 <div class="panel-header">
                     <h3>个人信息维护</h3>
                     <div class="panel-actions">
-                        <button class="btn-secondary" onclick="refreshMe()">刷新信息</button>
+                        <button class="icon-btn" title="刷新个人信息" onclick="refreshMe()">⟳</button>
                     </div>
                 </div>
                 <div class="two-col">
@@ -606,19 +706,19 @@
                         </label>
                     </div>
                 </div>
-                <div class="actions">
+                <div class="actions actions-right">
                     <button class="btn-primary" onclick="saveProfile()">保存</button>
                     <button class="btn-secondary" onclick="logout()">退出登录</button>
                     <button class="btn-danger" onclick="deleteAccount()">注销账户</button>
                 </div>
-                <div id="gitPasswordHint" class="mini-note">修改密码时需要同时输入旧密码，系统会校验后才允许更新。</div>
+                <div id="gitPasswordHint" class="mini-note note-right">修改密码时需要同时输入旧密码，系统会校验后才允许更新。</div>
             </div>
 
             <div id="adminUsersPanel" class="subtle-card module-section hidden">
                 <div class="panel-header">
                     <h3>用户管理</h3>
                     <div class="panel-actions">
-                        <button class="btn-secondary" onclick="loadUsers()">刷新用户</button>
+                        <button class="icon-btn" title="刷新用户列表" onclick="loadUsers()">⟳</button>
                     </div>
                 </div>
                 <div class="grid">
@@ -642,7 +742,7 @@
                         </select>
                     </div>
                 </div>
-                <div class="actions">
+                <div class="actions actions-right">
                     <button class="btn-primary" onclick="createUserByAdmin()">创建用户</button>
                 </div>
                 <div class="table-wrapper" style="margin-top:12px;">
@@ -658,6 +758,46 @@
                             </tr>
                         </thead>
                         <tbody id="userTable"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="groupSection" class="subtle-card module-section hidden">
+                <div class="panel-header">
+                    <h3>组管理</h3>
+                    <div class="panel-actions">
+                        <button class="icon-btn" title="刷新组列表" onclick="loadGroups()">⟳</button>
+                    </div>
+                </div>
+                <div class="grid">
+                    <div>
+                        <label for="groupName">组名称</label>
+                        <input id="groupName" placeholder="例如：研发组" />
+                    </div>
+                    <div class="full-width">
+                        <label for="groupMembers">组成员（可多选）</label>
+                        <div id="groupMembers" class="multi-dropdown"></div>
+                    </div>
+                    <div class="full-width">
+                        <label for="groupPermissions">组权限（可多选）</label>
+                        <div id="groupPermissions" class="multi-dropdown"></div>
+                    </div>
+                </div>
+                <div class="actions actions-right">
+                    <button class="btn-primary" onclick="saveGroup()">保存组</button>
+                    <button class="btn-secondary" onclick="clearGroupForm()">重置</button>
+                </div>
+                <div class="table-wrapper" style="margin-top:12px;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>组名</th>
+                                <th>成员数</th>
+                                <th>权限</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="groupTable"></tbody>
                     </table>
                 </div>
             </div>
@@ -699,16 +839,22 @@
                         </div>
                     </div>
                     <div>
-                        <label for="emailRecipients">邮件接收人</label>
-                        <input id="emailRecipients" placeholder="a@example.com,b@example.com" />
+                        <label for="emailRecipientsSelect">邮件接收人（可多选）</label>
+                        <div id="emailRecipientsSelect" class="multi-dropdown"></div>
+                        <div class="mini-note">支持从用户邮箱中多选；可在下方补充外部邮箱。</div>
+                    </div>
+                    <div>
+                        <label for="emailRecipientsExtra">补充邮箱（逗号分隔）</label>
+                        <input id="emailRecipientsExtra" placeholder="a@example.com,b@example.com" />
                     </div>
                     <div class="full-width">
-                        <label for="smsRecipients">短信接收人</label>
-                        <input id="smsRecipients" placeholder="+8613712345678, ..." />
+                        <label for="ownerUsernameSelect">归属用户（必选）</label>
+                        <select id="ownerUsernameSelect" class="inline-select"></select>
                     </div>
                     <div id="ownerField" class="full-width hidden">
-                        <label for="ownerUsername">归属用户</label>
-                        <input id="ownerUsername" placeholder="管理员可指定项目归属用户" />
+                        <label for="ownerTargets">归属子用户/组（可多选）</label>
+                        <div id="ownerTargets" class="multi-dropdown"></div>
+                        <div class="mini-note">可选择多个用户、多个组，或用户与组混合。</div>
                     </div>
                     <div id="reviewField" class="full-width hidden">
                         <label for="reviewStatus">审核状态</label>
@@ -720,7 +866,7 @@
                         <div class="mini-note">管理员可以对所有用户的项目进行管理和审核。</div>
                     </div>
                 </div>
-                <div class="actions">
+                <div class="actions actions-right">
                     <button class="btn-primary" onclick="saveProject()">保存项目</button>
                     <button class="btn-secondary" onclick="clearForm()">重置表单</button>
                     <button class="btn-secondary" onclick="loadProjects()">刷新项目</button>
@@ -819,6 +965,7 @@
         const stateTable = document.getElementById('stateTable');
         const mailLogTable = document.getElementById('mailLogTable');
         const userTable = document.getElementById('userTable');
+        const groupTable = document.getElementById('groupTable');
         const toast = document.getElementById('toast');
         const detailModal = document.getElementById('detailModal');
         const modalTitle = document.getElementById('modalTitle');
@@ -834,10 +981,11 @@
         const registerView = document.getElementById('registerView');
         const mailPanel = document.getElementById('mailSection');
         const adminUsersPanel = document.getElementById('adminUsersPanel');
+        const groupSection = document.getElementById('groupSection');
         const ownerField = document.getElementById('ownerField');
         const reviewField = document.getElementById('reviewField');
         const projectScopeHint = document.getElementById('projectScopeHint');
-        const moduleSections = ['profileSection', 'adminUsersPanel', 'projectSection', 'stateSection', 'mailSection'];
+        const moduleSections = ['profileSection', 'adminUsersPanel', 'groupSection', 'projectSection', 'stateSection', 'mailSection'];
 
         const PER_PAGE = 10;
         let projectsCache = [];
@@ -845,6 +993,7 @@
         let mailLogsCache = [];
         let projectLogsCache = [];
         let usersCache = [];
+        let groupsCache = [];
         let mailPage = 1;
         let projectLogPage = 1;
         let currentProjectLogName = '';
@@ -852,6 +1001,18 @@
         let currentUser = null;
         let eventSource = null;
         let editingUserId = null;
+        let editingGroupId = null;
+        const checkingProjects = new Set();
+        const GROUP_PERMISSION_OPTIONS = [
+            { value: 'projects.read', label: 'projects.read（查看项目与状态）' },
+            { value: 'projects.write', label: 'projects.write（编辑项目配置）' },
+            { value: 'alerts.read', label: 'alerts.read（查看告警与邮件日志）' },
+            { value: 'alerts.write', label: 'alerts.write（触发检查与处理告警）' },
+            { value: 'users.read', label: 'users.read（查看用户信息）' },
+            { value: 'users.write', label: 'users.write（管理用户）' },
+            { value: 'groups.read', label: 'groups.read（查看组信息）' },
+            { value: 'groups.write', label: 'groups.write（管理组）' },
+        ];
 
         function escapeHtml(value) {
             return String(value || '')
@@ -893,6 +1054,181 @@
             return decodeURIComponent(String(value || ''));
         }
 
+        function closeAllMultiDropdown(exceptId = '') {
+            document.querySelectorAll('.multi-dropdown.open').forEach(item => {
+                if (exceptId && item.id === exceptId) return;
+                item.classList.remove('open');
+            });
+        }
+
+        function updateMultiDropdownSummary(containerId) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            const selected = Array.from(container._selected || []);
+            const options = Array.isArray(container._options) ? container._options : [];
+            const textNode = container.querySelector('.multi-dropdown-text');
+            if (!textNode) return;
+            if (!selected.length) {
+                textNode.innerHTML = '<span class="multi-dropdown-placeholder">请选择</span>';
+                return;
+            }
+            const labels = selected
+                .map(value => options.find(option => option.value === value)?.label || value)
+                .slice(0, 2);
+            const more = selected.length > 2 ? ` +${selected.length - 2}` : '';
+            textNode.textContent = `${labels.join(', ')}${more}`;
+        }
+
+        function toggleMultiDropdown(containerId) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            const willOpen = !container.classList.contains('open');
+            closeAllMultiDropdown(containerId);
+            if (willOpen) {
+                container.classList.add('open');
+            } else {
+                container.classList.remove('open');
+            }
+        }
+
+        function toggleMultiDropdownOption(containerId, value, checked) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            if (!container._selected) {
+                container._selected = new Set();
+            }
+            if (checked) {
+                container._selected.add(value);
+            } else {
+                container._selected.delete(value);
+            }
+            updateMultiDropdownSummary(containerId);
+        }
+
+        function renderMultiDropdown(containerId, options, selectedValues = []) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            const safeOptions = Array.isArray(options) ? options : [];
+            const allowedValues = new Set(safeOptions.map(option => option.value));
+            const selected = (Array.isArray(selectedValues) ? selectedValues : []).filter(value => allowedValues.has(value));
+            container._options = safeOptions;
+            container._selected = new Set(selected);
+            container.classList.remove('open');
+            container.innerHTML = `
+                <div class="multi-dropdown-trigger" onclick="toggleMultiDropdown('${containerId}')">
+                    <span class="multi-dropdown-text"></span>
+                    <span>▾</span>
+                </div>
+                <div class="multi-dropdown-panel">
+                    ${safeOptions.length ? safeOptions.map(option => {
+                        const checked = container._selected.has(option.value) ? 'checked' : '';
+                        return `<label class="multi-dropdown-option"><input type="checkbox" value="${escapeHtml(option.value)}" ${checked} onchange="toggleMultiDropdownOption('${containerId}', this.value, this.checked)" />${escapeHtml(option.label)}</label>`;
+                    }).join('') : '<div class="mini-note" style="margin: 0;">暂无可选项</div>'}
+                </div>
+            `;
+            updateMultiDropdownSummary(containerId);
+        }
+
+        function collectSelectedValues(selectId) {
+            const element = document.getElementById(selectId);
+            if (!element) return [];
+            if (element.classList.contains('multi-dropdown')) {
+                return Array.from(element._selected || []);
+            }
+            return Array.from(element.selectedOptions || []).map(option => option.value).filter(Boolean);
+        }
+
+        function setSelectedValues(selectId, values) {
+            const select = document.getElementById(selectId);
+            if (!select) return;
+            const selectedSet = new Set(Array.isArray(values) ? values : []);
+            if (select.classList.contains('multi-dropdown')) {
+                const options = Array.isArray(select._options) ? select._options : [];
+                const allowed = new Set(options.map(item => item.value));
+                select._selected = new Set(Array.from(selectedSet).filter(item => allowed.has(item)));
+                select.querySelectorAll('input[type="checkbox"]').forEach(input => {
+                    input.checked = select._selected.has(input.value);
+                });
+                updateMultiDropdownSummary(selectId);
+                return;
+            }
+            Array.from(select.options).forEach(option => {
+                option.selected = selectedSet.has(option.value);
+            });
+        }
+
+        function refreshUserAndGroupSelectors() {
+            const ownerTargets = document.getElementById('ownerTargets');
+            const ownerUsernameSelect = document.getElementById('ownerUsernameSelect');
+            const groupMembers = document.getElementById('groupMembers');
+            const groupPermissions = document.getElementById('groupPermissions');
+            const emailRecipientsSelect = document.getElementById('emailRecipientsSelect');
+
+            const ownerSelected = collectSelectedValues('ownerTargets');
+            const ownerUsernameSelected = ownerUsernameSelect?.value || '';
+            const groupMemberSelected = collectSelectedValues('groupMembers');
+            const groupPermissionSelected = collectSelectedValues('groupPermissions');
+            const emailSelected = collectSelectedValues('emailRecipientsSelect');
+
+            if (ownerUsernameSelect) {
+                ownerUsernameSelect.innerHTML = usersCache
+                    .map(user => `<option value="${escapeHtml(user.username || '')}">${escapeHtml(user.username || '')}</option>`)
+                    .join('');
+                ownerUsernameSelect.value = ownerUsernameSelected || currentUser?.username || ownerUsernameSelect.value || '';
+            }
+
+            if (ownerTargets) {
+                const ownerOptions = [];
+                usersCache.forEach(user => {
+                    ownerOptions.push({ value: `user:${user.username || ''}`, label: `用户：${user.username || ''}` });
+                });
+                groupsCache.forEach(group => {
+                    ownerOptions.push({ value: `group:${group.id || ''}`, label: `组：${group.name || ''}` });
+                });
+                renderMultiDropdown('ownerTargets', ownerOptions, ownerSelected);
+            }
+
+            if (groupMembers) {
+                const memberOptions = usersCache.map(user => ({ value: `${user.username || ''}`, label: `${user.username || ''}` }));
+                renderMultiDropdown('groupMembers', memberOptions, groupMemberSelected);
+            }
+
+            if (groupPermissions) {
+                renderMultiDropdown('groupPermissions', GROUP_PERMISSION_OPTIONS, groupPermissionSelected);
+            }
+
+            if (emailRecipientsSelect) {
+                const emailOptions = usersCache
+                    .filter(user => (user.email || '').trim())
+                    .map(user => ({ value: `${user.email || ''}`, label: `${user.username || ''} (${user.email || ''})` }));
+                renderMultiDropdown('emailRecipientsSelect', emailOptions, emailSelected);
+            }
+        }
+
+        function setupButtonDebounce() {
+            const debounceMs = 650;
+            document.addEventListener('click', (event) => {
+                const button = event.target.closest('button');
+                if (!button) {
+                    return;
+                }
+                const now = Date.now();
+                const lastClickAt = Number(button.dataset.lastClickAt || '0');
+                if (now - lastClickAt < debounceMs) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return;
+                }
+                button.dataset.lastClickAt = String(now);
+            }, true);
+
+            document.addEventListener('click', (event) => {
+                if (!event.target.closest('.multi-dropdown')) {
+                    closeAllMultiDropdown();
+                }
+            });
+        }
+
         function openModal(title, contentText) {
             modalTitle.textContent = title;
             modalBody.innerHTML = `<pre>${escapeHtml(contentText)}</pre>`;
@@ -928,9 +1264,10 @@
             document.getElementById('branch').value = '';
             document.getElementById('checkInterval').value = '';
             document.getElementById('monitorEnabled').checked = true;
-            document.getElementById('emailRecipients').value = '';
-            document.getElementById('smsRecipients').value = '';
-            document.getElementById('ownerUsername').value = currentUser?.username || '';
+            document.getElementById('emailRecipientsExtra').value = '';
+            document.getElementById('ownerUsernameSelect').value = currentUser?.username || '';
+            setSelectedValues('ownerTargets', currentUser?.username ? [`user:${currentUser.username}`] : []);
+            setSelectedValues('emailRecipientsSelect', []);
             document.getElementById('reviewStatus').value = 'pending';
         }
 
@@ -959,6 +1296,7 @@
             if (isAdmin()) {
                 items.push({ label: '邮件日志', target: 'mailSection' });
                 items.push({ label: '用户管理', target: 'adminUsersPanel' });
+                items.push({ label: '组管理', target: 'groupSection' });
             }
             items.push({ label: '个人信息', target: 'profileSection' });
             moduleMenu.innerHTML = items.map(item => `<button type="button" data-target="${item.target}" onclick="showModule('${item.target}')">${item.label}</button>`).join('');
@@ -973,9 +1311,8 @@
                 element.classList.toggle('hidden', !shouldShow);
             });
             setActiveMenu(sectionId);
-            const target = document.getElementById(sectionId);
-            if (target && !skipScroll) {
-                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (!skipScroll) {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
             }
         }
 
@@ -990,11 +1327,29 @@
             ownerField.classList.toggle('hidden', !isAdmin());
             reviewField.classList.toggle('hidden', !isAdmin());
             projectScopeHint.textContent = isAdmin() ? '管理员可管理全部项目并分配归属与审核状态。' : '仅显示并管理当前登录用户自己的项目。';
-            document.getElementById('ownerUsername').value = isAdmin() ? '' : (currentUser?.username || '');
+            if (!isAdmin()) {
+                document.getElementById('ownerUsernameSelect').value = currentUser?.username || '';
+                setSelectedValues('ownerTargets', currentUser?.username ? [`user:${currentUser.username}`] : []);
+            }
             if (!isAdmin()) {
                 document.getElementById('reviewStatus').value = 'pending';
             }
             renderTopMenu();
+        }
+
+        function getProjectOwnerDisplay(project) {
+            const ownerUsers = Array.isArray(project.owner_users) ? project.owner_users : [];
+            const ownerGroups = Array.isArray(project.owner_groups) ? project.owner_groups : [];
+            const ownerParts = [];
+            ownerUsers.forEach(username => ownerParts.push(`用户:${username}`));
+            ownerGroups.forEach(groupId => {
+                const group = groupsCache.find(item => item.id === groupId);
+                ownerParts.push(`组:${group?.name || groupId}`);
+            });
+            if (!ownerParts.length && project.owner_username) {
+                ownerParts.push(`用户:${project.owner_username}`);
+            }
+            return ownerParts.join(' / ');
         }
 
         function renderProjects() {
@@ -1002,7 +1357,7 @@
                 <tr>
                     <td>${escapeHtml(project.id || '')}</td>
                     <td>${escapeHtml(project.name || '')}</td>
-                    <td>${escapeHtml(project.owner_username || '')}</td>
+                    <td>${escapeHtml(getProjectOwnerDisplay(project) || '')}</td>
                     <td><span class="badge ${project.review_status === 'approved' ? 'badge-ok' : project.review_status === 'rejected' ? 'badge-error' : 'badge-warn'}">${escapeHtml(project.review_status || 'pending')}</span></td>
                     <td>${escapeHtml(project.repo_url || '')}</td>
                     <td>${escapeHtml(project.branch || '')}</td>
@@ -1090,6 +1445,31 @@
             if (!usersCache.length) {
                 userTable.innerHTML = '<tr><td colspan="6">暂无用户</td></tr>';
             }
+        }
+
+        function renderGroups() {
+            if (!groupTable) return;
+            groupTable.innerHTML = groupsCache.map(group => `
+                <tr>
+                    <td>${escapeHtml(group.name || '')}</td>
+                    <td>${Array.isArray(group.members) ? group.members.length : 0}</td>
+                    <td>${escapeHtml((group.permissions || []).join(', '))}</td>
+                    <td>
+                        <button class="btn-secondary" onclick="editGroup('${encodeURIComponent(group.id || '')}')">编辑</button>
+                        <button class="btn-danger" onclick="deleteGroup('${encodeURIComponent(group.id || '')}')">删除</button>
+                    </td>
+                </tr>
+            `).join('');
+            if (!groupsCache.length) {
+                groupTable.innerHTML = '<tr><td colspan="4">暂无组</td></tr>';
+            }
+        }
+
+        function clearGroupForm() {
+            document.getElementById('groupName').value = '';
+            setSelectedValues('groupPermissions', []);
+            setSelectedValues('groupMembers', []);
+            editingGroupId = null;
         }
 
         function prevMailPage() {
@@ -1284,6 +1664,7 @@
                 mailLogsCache = [];
                 projectLogsCache = [];
                 usersCache = [];
+                groupsCache = [];
                 if (eventSource) {
                     eventSource.close();
                     eventSource = null;
@@ -1292,6 +1673,7 @@
                 renderProjects();
                 renderState();
                 if (userTable) userTable.innerHTML = '';
+                if (groupTable) groupTable.innerHTML = '';
                 showToast('已退出登录');
             }
         }
@@ -1386,13 +1768,50 @@
             document.getElementById('branch').value = project.branch || '';
             document.getElementById('checkInterval').value = project.check_interval || '';
             document.getElementById('monitorEnabled').checked = project.monitor_enabled !== false;
-            document.getElementById('emailRecipients').value = Array.isArray(project.email_recipients) ? project.email_recipients.join(',') : project.email_recipients || '';
-            document.getElementById('smsRecipients').value = Array.isArray(project.sms_recipients) ? project.sms_recipients.join(',') : project.sms_recipients || '';
-            document.getElementById('ownerUsername').value = project.owner_username || currentUser?.username || '';
+            const emailRecipients = Array.isArray(project.email_recipients) ? project.email_recipients : [];
+            const selectableEmails = new Set(
+                usersCache
+                    .filter(user => (user.email || '').trim())
+                    .map(user => String(user.email || '').trim())
+            );
+            const selectedEmails = emailRecipients.filter(email => selectableEmails.has(email));
+            const extraEmails = emailRecipients.filter(email => !selectableEmails.has(email));
+            setSelectedValues('emailRecipientsSelect', selectedEmails);
+            document.getElementById('emailRecipientsExtra').value = extraEmails.join(',');
+            const ownerTargets = [];
+            (project.owner_users || []).forEach(username => ownerTargets.push(`user:${username}`));
+            (project.owner_groups || []).forEach(groupId => ownerTargets.push(`group:${groupId}`));
+            if (!ownerTargets.length && project.owner_username) {
+                ownerTargets.push(`user:${project.owner_username}`);
+            }
+            document.getElementById('ownerUsernameSelect').value = project.owner_username || currentUser?.username || '';
+            setSelectedValues('ownerTargets', ownerTargets);
             document.getElementById('reviewStatus').value = project.review_status || 'pending';
         }
 
         async function saveProject() {
+            const ownerUsernameSelected = (document.getElementById('ownerUsernameSelect').value || '').trim();
+            const selectedOwnerTargets = collectSelectedValues('ownerTargets');
+            const ownerUsers = selectedOwnerTargets
+                .filter(item => item.startsWith('user:'))
+                .map(item => item.split(':', 2)[1])
+                .filter(Boolean);
+            if (ownerUsernameSelected && !ownerUsers.includes(ownerUsernameSelected)) {
+                ownerUsers.unshift(ownerUsernameSelected);
+            }
+            const ownerGroups = selectedOwnerTargets
+                .filter(item => item.startsWith('group:'))
+                .map(item => item.split(':', 2)[1])
+                .filter(Boolean);
+            const ownerTargets = Array.from(new Set([
+                ...(ownerUsernameSelected ? [`user:${ownerUsernameSelected}`] : []),
+                ...selectedOwnerTargets,
+            ]));
+            const selectedEmails = collectSelectedValues('emailRecipientsSelect');
+            const extraEmails = document.getElementById('emailRecipientsExtra').value
+                .split(',')
+                .map(x => x.trim())
+                .filter(Boolean);
             const project = {
                 id: document.getElementById('projectId').value.trim(),
                 name: document.getElementById('projectName').value.trim(),
@@ -1400,14 +1819,20 @@
                 branch: document.getElementById('branch').value.trim() || 'master',
                 check_interval: Number(document.getElementById('checkInterval').value) || 60,
                 monitor_enabled: document.getElementById('monitorEnabled').checked,
-                email_recipients: document.getElementById('emailRecipients').value.split(',').map(x => x.trim()).filter(Boolean),
-                sms_recipients: document.getElementById('smsRecipients').value.split(',').map(x => x.trim()).filter(Boolean),
-                owner_username: isAdmin() ? document.getElementById('ownerUsername').value.trim() : currentUser?.username,
+                email_recipients: Array.from(new Set([...selectedEmails, ...extraEmails])),
+                owner_targets: ownerTargets,
+                owner_users: ownerUsers,
+                owner_groups: ownerGroups,
+                owner_username: isAdmin() ? ownerUsernameSelected : currentUser?.username,
                 review_status: isAdmin() ? document.getElementById('reviewStatus').value : 'pending'
             };
 
             if (!project.id || !project.name || !project.repo_url) {
                 showToast('请填写项目 ID、项目名称和仓库 URL');
+                return;
+            }
+            if (!project.owner_username) {
+                showToast('请先选择归属用户（必选）');
                 return;
             }
 
@@ -1520,6 +1945,15 @@
 
         async function checkProject(id) {
             id = decodeArg(id);
+            if (!id) {
+                showToast('无效项目 ID');
+                return;
+            }
+            if (checkingProjects.has(id)) {
+                showToast('该项目正在检查中，请稍候');
+                return;
+            }
+            checkingProjects.add(id);
             try {
                 const result = await apiJson(`/api/check/${id}`, { method: 'POST' });
                 showToast(`检查完成: ${result.status}`);
@@ -1529,6 +1963,8 @@
                 }
             } catch (error) {
                 showToast(error.message || '检查请求失败');
+            } finally {
+                checkingProjects.delete(id);
             }
         }
 
@@ -1540,10 +1976,29 @@
             try {
                 usersCache = await apiJson('/api/admin/users');
                 renderUsers();
+                refreshUserAndGroupSelectors();
                 showToast('用户列表已刷新');
             } catch (error) {
                 userTable.innerHTML = '<tr><td colspan="6">无法加载用户</td></tr>';
                 showToast(error.message || '刷新用户失败');
+            }
+        }
+
+        async function loadGroups() {
+            if (!isAdmin()) {
+                return;
+            }
+            try {
+                groupsCache = await apiJson('/api/admin/groups');
+                renderGroups();
+                renderProjects();
+                refreshUserAndGroupSelectors();
+                showToast('组列表已刷新');
+            } catch (error) {
+                if (groupTable) {
+                    groupTable.innerHTML = '<tr><td colspan="5">无法加载组</td></tr>';
+                }
+                showToast(error.message || '刷新组失败');
             }
         }
 
@@ -1577,8 +2032,69 @@
                 editingUserId = null;
                 fillAdminUserForm(null);
                 await loadUsers();
+                await loadGroups();
             } catch (error) {
                 showToast(error.message || '用户保存失败');
+            }
+        }
+
+        async function saveGroup() {
+            const payload = {
+                name: document.getElementById('groupName').value.trim(),
+                members: collectSelectedValues('groupMembers'),
+                permissions: collectSelectedValues('groupPermissions'),
+            };
+            if (!payload.name) {
+                showToast('请填写组名称');
+                return;
+            }
+            try {
+                if (editingGroupId) {
+                    await apiJson(`/api/admin/groups/${editingGroupId}`, {
+                        method: 'PUT',
+                        body: JSON.stringify(payload),
+                    });
+                    showToast('组已更新');
+                } else {
+                    await apiJson('/api/admin/groups', {
+                        method: 'POST',
+                        body: JSON.stringify(payload),
+                    });
+                    showToast('组已创建');
+                }
+                clearGroupForm();
+                await loadGroups();
+                await loadProjects();
+            } catch (error) {
+                showToast(error.message || '组保存失败');
+            }
+        }
+
+        function editGroup(id) {
+            id = decodeArg(id);
+            const group = groupsCache.find(item => item.id === id);
+            if (!group) {
+                return;
+            }
+            document.getElementById('groupName').value = group.name || '';
+            setSelectedValues('groupPermissions', group.permissions || []);
+            setSelectedValues('groupMembers', group.members || []);
+            editingGroupId = group.id;
+            showToast('组信息已加载到编辑表单');
+        }
+
+        async function deleteGroup(id) {
+            id = decodeArg(id);
+            if (!confirm('确认删除该组吗？')) {
+                return;
+            }
+            try {
+                await apiJson(`/api/admin/groups/${id}`, { method: 'DELETE' });
+                await loadGroups();
+                await loadProjects();
+                showToast('组已删除');
+            } catch (error) {
+                showToast(error.message || '删除组失败');
             }
         }
 
@@ -1649,6 +2165,7 @@
                     if (isAdmin()) {
                         await loadMailLogs();
                         await loadUsers();
+                        await loadGroups();
                     }
                     showModule(activeSectionId, true);
                 }, 300);
@@ -1681,6 +2198,7 @@
                 if (isAdmin()) {
                     await loadMailLogs();
                     await loadUsers();
+                    await loadGroups();
                 }
             }
             setupEvents();
@@ -1688,6 +2206,7 @@
         }
 
         async function bootstrap() {
+            setupButtonDebounce();
             switchAuthMode('login');
             const ok = await loadMe();
             if (ok) {
