@@ -768,6 +768,34 @@ def collect_git_review_payload(repo_dir: Path, base: str, head: str, max_diff_ch
     }
 
 
+def collect_repo_structure(repo_dir: Path, max_files: int = 400) -> Dict[str, Any]:
+    try:
+        result = run_git_command(repo_dir, ["ls-files"])
+        all_files = [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
+    except Exception:
+        all_files = []
+
+    tracked_files = all_files[:max_files]
+    top_level_dirs = []
+    top_level_files = []
+    for path in tracked_files:
+        parts = path.split("/")
+        if len(parts) > 1:
+            top_dir = parts[0]
+            if top_dir not in top_level_dirs:
+                top_level_dirs.append(top_dir)
+        else:
+            top_level_files.append(path)
+
+    return {
+        "tracked_file_count": len(all_files),
+        "tracked_files": tracked_files,
+        "truncated": len(all_files) > max_files,
+        "top_level_dirs": top_level_dirs,
+        "top_level_files": top_level_files,
+    }
+
+
 def sanitize_for_prompt(text: str, max_len: int = 100000) -> str:
     if not text:
         return ""
@@ -798,7 +826,7 @@ def load_ai_review_skill() -> str:
 
 
 def build_review_summary(project: Dict[str, Any], comparison: Dict[str, Any], review_payload: Dict[str, Any],
-                         last_sha: str, current_sha: str) -> Dict[str, Any]:
+                         last_sha: str, current_sha: str, repo_structure: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     files = comparison.get("files", [])
     return {
         "project": project.get("name"),
@@ -821,6 +849,7 @@ def build_review_summary(project: Dict[str, Any], comparison: Dict[str, Any], re
         "file_stats": review_payload.get("file_stats", []),
         "commits": review_payload.get("commits", []),
         "patch_truncated": review_payload.get("patch_truncated", False),
+        "repo_structure": repo_structure or {},
     }
 
 
@@ -870,8 +899,11 @@ def build_review_source_context(summary: Dict[str, Any], patch_text: str,
     safe_patch = sanitize_for_prompt(patch_text, 80000)
     snapshot_payload = head_snapshots if isinstance(head_snapshots, list) else []
     safe_snapshots = sanitize_for_prompt(json.dumps(snapshot_payload, ensure_ascii=False, indent=2), 50000)
+    structure_payload = summary.get("repo_structure", {}) if isinstance(summary, dict) else {}
+    safe_structure = sanitize_for_prompt(json.dumps(structure_payload, ensure_ascii=False, indent=2), 40000)
     return (
         f"Structured summary JSON:\n{safe_summary}\n\n"
+        f"Repository structure summary:\n{safe_structure}\n\n"
         f"Unified diff patch:\n{safe_patch}\n\n"
         f"Head commit file snapshots (source of truth for final state):\n{safe_snapshots}"
     )
@@ -1063,9 +1095,10 @@ def generate_ai_git_review(project: Dict[str, Any], comparison: Dict[str, Any], 
 
     try:
         repo_dir = ensure_local_repo(project.get("repo_url", ""), owner, repo, auth_repo_url=auth_repo_url)
+        repo_structure = collect_repo_structure(repo_dir)
         review_payload = collect_git_review_payload(repo_dir, last_sha, current_sha, max_diff_chars)
         patch_text = review_payload.get("patch", "")
-        summary = build_review_summary(project, comparison, review_payload, last_sha, current_sha)
+        summary = build_review_summary(project, comparison, review_payload, last_sha, current_sha, repo_structure)
         changed_files = [
             str(item.get("filename") or "").strip()
             for item in comparison.get("files", [])
