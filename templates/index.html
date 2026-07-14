@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="csrf-token" content="{{ csrf_token() }}" />
     <title>仓库监控服务</title>
     <style>
         :root {
@@ -1162,12 +1163,24 @@
             }
         }
 
+        function setCsrfToken(token) {
+            if (!token) {
+                return;
+            }
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            if (meta) {
+                meta.content = token;
+            }
+        }
+
         async function apiJson(url, options = {}) {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
             const response = await fetch(url, {
                 credentials: 'same-origin',
                 ...options,
                 headers: {
                     'Content-Type': 'application/json',
+                    ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
                     ...(options.headers || {})
                 }
             });
@@ -1176,6 +1189,9 @@
                 data = await response.json();
             } catch (error) {
                 data = null;
+            }
+            if (data?.csrf_token) {
+                setCsrfToken(data.csrf_token);
             }
             if (!response.ok) {
                 throw new Error(data?.error || '请求失败');
@@ -1390,8 +1406,8 @@
                 review_status: isAdmin() ? document.getElementById('reviewStatus').value : 'pending'
             };
 
-            if (!project.id || !project.repo_url) {
-                showToast('请填写项目 ID 和仓库 URL');
+            if (!project.id || !project.name || !project.repo_url) {
+                showToast('请填写项目 ID、项目名称和仓库 URL');
                 return;
             }
 
