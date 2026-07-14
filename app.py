@@ -23,7 +23,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from werkzeug.security import check_password_hash, generate_password_hash
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from flask_wtf.csrf import CSRFProtect, CSRFError
+from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -49,6 +49,8 @@ EVENTS: List[Dict[str, Any]] = []
 EVENT_LOCK = threading.Lock()
 MONITOR_THREAD_STARTED = False
 MONITOR_THREAD_LOCK = threading.Lock()
+PROJECT_CHECK_LOCKS: Dict[str, threading.Lock] = {}
+PROJECT_CHECK_LOCKS_GUARD = threading.Lock()
 DEFAULT_CHECK_INTERVAL = 60
 DEFAULT_EMAIL_TO = "licl45@lenovo.com"
 DEFAULT_ADMIN_USERNAME = "admin"
@@ -172,7 +174,7 @@ def ensure_files() -> None:
 def seed_default_users() -> None:
     if not DEFAULT_ADMIN_PASSWORD:
         logger.warning("DEFAULT_ADMIN_PASSWORD not set, skipping default admin user creation")
-        save_json(USER_FILE, {"users": []})
+        save_json(USER_FILE, {"users": [], "groups": []})
         return
     
     now = datetime.now(timezone.utc).isoformat()
@@ -188,7 +190,8 @@ def seed_default_users() -> None:
                 "created_at": now,
                 "updated_at": now,
             }
-        ]
+        ],
+        "groups": [],
     })
 
 
@@ -210,13 +213,119 @@ def ensure_default_admin_user() -> None:
         save_users(users)
 
 
+def load_user_store() -> Dict[str, Any]:
+    data = load_json(USER_FILE, {"users": [], "groups": []})
+    users = data.get("users", [])
+    groups = data.get("groups", [])
+    return {
+        "users": users if isinstance(users, list) else [],
+        "groups": groups if isinstance(groups, list) else [],
+    }
+
+
+def save_user_store(store: Dict[str, Any]) -> None:
+    save_json(USER_FILE, {
+        "users": store.get("users", []) if isinstance(store.get("users", []), list) else [],
+        "groups": store.get("groups", []) if isinstance(store.get("groups", []), list) else [],
+    })
+
+
 def load_users() -> List[Dict[str, Any]]:
-    data = load_json(USER_FILE, {"users": []})
-    return data.get("users", [])
+    return load_user_store().get("users", [])
 
 
 def save_users(users: List[Dict[str, Any]]) -> None:
-    save_json(USER_FILE, {"users": users})
+    store = load_user_store()
+    store["users"] = users
+    save_user_store(store)
+
+
+def load_groups() -> List[Dict[str, Any]]:
+    return load_user_store().get("groups", [])
+
+
+def save_groups(groups: List[Dict[str, Any]]) -> None:
+    store = load_user_store()
+    store["groups"] = groups
+    save_user_store(store)
+
+
+def normalize_string_list(value: Any) -> List[str]:
+    if not isinstance(value, list):
+        return []
+    cleaned: List[str] = []
+    for item in value:
+        text = str(item or "").strip()
+        if text and text not in cleaned:
+            cleaned.append(text)
+    return cleaned
+
+
+def normalize_owner_targets(project: Dict[str, Any]) -> tuple:
+    owner_users = normalize_string_list(project.get("owner_users", []))
+    owner_groups = normalize_string_list(project.get("owner_groups", []))
+    owner_targets = normalize_string_list(project.get("owner_targets", []))
+    for target in owner_targets:
+        if target.startswith("user:"):
+            username = target.split(":", 1)[1].strip()
+            if username and username not in owner_users:
+                owner_users.append(username)
+        elif target.startswith("group:"):
+            group_id = target.split(":", 1)[1].strip()
+            if group_id and group_id not in owner_groups:
+                owner_groups.append(group_id)
+    return owner_users, owner_groups
+
+
+def expand_project_owner_usernames(project: Dict[str, Any], users: Optional[List[Dict[str, Any]]] = None,
+                                   groups: Optional[List[Dict[str, Any]]] = None) -> List[str]:
+    owner_usernames: List[str] = []
+    owner_username = (project.get("owner_username") or "").strip()
+    if owner_username:
+        owner_usernames.append(owner_username)
+
+    for username in normalize_string_list(project.get("owner_users", [])):
+        if username not in owner_usernames:
+            owner_usernames.append(username)
+
+    owner_group_ids = normalize_string_list(project.get("owner_groups", []))
+    if owner_group_ids:
+        groups_data = groups if groups is not None else load_groups()
+        groups_by_id = {str(group.get("id") or "").strip(): group for group in groups_data}
+        for group_id in owner_group_ids:
+            group = groups_by_id.get(group_id)
+            if not group:
+                continue
+            for username in normalize_string_list(group.get("members", [])):
+                if username not in owner_usernames:
+                    owner_usernames.append(username)
+
+    if users is not None:
+        existing = {str(user.get("username") or "").strip() for user in users}
+        owner_usernames = [name for name in owner_usernames if name in existing]
+    return owner_usernames
+
+
+def can_user_access_project(user: Dict[str, Any], project: Dict[str, Any],
+                            users: Optional[List[Dict[str, Any]]] = None,
+                            groups: Optional[List[Dict[str, Any]]] = None) -> bool:
+    if user.get("role") == "admin":
+        return True
+    username = (user.get("username") or "").strip()
+    if not username:
+        return False
+    return username in set(expand_project_owner_usernames(project, users=users, groups=groups))
+
+
+def public_group_view(group: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": group.get("id"),
+        "name": group.get("name"),
+        "permissions": normalize_string_list(group.get("permissions", [])),
+        "members": normalize_string_list(group.get("members", [])),
+        "created_at": group.get("created_at"),
+        "updated_at": group.get("updated_at"),
+    }
 
 
 def get_current_user() -> Optional[Dict[str, Any]]:
@@ -279,7 +388,16 @@ def parse_bool(value: Any, default: bool = True) -> bool:
 
 
 def sanitize_project(project: Dict[str, Any], current_user: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    owner_username = project.get("owner_username") or (current_user or {}).get("username")
+    owner_username = (project.get("owner_username") or (current_user or {}).get("username") or "").strip()
+    owner_users, owner_groups = normalize_owner_targets(project)
+    if owner_username and owner_username not in owner_users:
+        owner_users.insert(0, owner_username)
+    if not owner_username and owner_users:
+        owner_username = owner_users[0]
+    if not owner_username:
+        owner_username = (current_user or {}).get("username", "")
+    if owner_username and owner_username not in owner_users:
+        owner_users.insert(0, owner_username)
     branch_value = (project.get("branch") or "").strip()
     repo_url = project.get("repo_url", "").strip()
     normalized_repo_url = normalize_repo_url(repo_url)
@@ -293,8 +411,9 @@ def sanitize_project(project: Dict[str, Any], current_user: Optional[Dict[str, A
         "check_interval": max(10, int(project.get("check_interval", DEFAULT_CHECK_INTERVAL))),
         "monitor_enabled": parse_bool(project.get("monitor_enabled", True), default=True),
         "email_recipients": project.get("email_recipients", []) if isinstance(project.get("email_recipients"), list) else [],
-        "sms_recipients": project.get("sms_recipients", []) if isinstance(project.get("sms_recipients"), list) else [],
         "owner_username": owner_username,
+        "owner_users": owner_users,
+        "owner_groups": owner_groups,
         "review_status": project.get("review_status", "pending"),
         "review_note": project.get("review_note", ""),
         "created_at": project.get("created_at") or datetime.now(timezone.utc).isoformat(),
@@ -305,7 +424,9 @@ def sanitize_project(project: Dict[str, Any], current_user: Optional[Dict[str, A
 def visible_projects_for_user(projects: List[Dict[str, Any]], user: Dict[str, Any]) -> List[Dict[str, Any]]:
     if user.get("role") == "admin":
         return projects
-    return [project for project in projects if project.get("owner_username") == user.get("username")]
+    users = load_users()
+    groups = load_groups()
+    return [project for project in projects if can_user_access_project(user, project, users=users, groups=groups)]
 
 
 def find_project_by_id(projects: List[Dict[str, Any]], project_id: str) -> Optional[Dict[str, Any]]:
@@ -323,6 +444,13 @@ def push_event(event_type: str, payload: Dict[str, Any]) -> None:
         EVENTS.append({"type": event_type, "time": datetime.now(timezone.utc).isoformat(), "payload": payload})
         if len(EVENTS) > 200:
             EVENTS.pop(0)
+
+
+def get_project_check_lock(project_id: str) -> threading.Lock:
+    with PROJECT_CHECK_LOCKS_GUARD:
+        if project_id not in PROJECT_CHECK_LOCKS:
+            PROJECT_CHECK_LOCKS[project_id] = threading.Lock()
+        return PROJECT_CHECK_LOCKS[project_id]
 
 
 # Configuration for history/mail log retention
@@ -454,15 +582,21 @@ def apply_git_credentials_to_repo_url(repo_url: str, git_username: str, git_pass
 
 def resolve_project_auth_repo_url(project: Dict[str, Any]) -> str:
     repo_url = (project.get("repo_url") or "").strip()
-    owner_username = (project.get("owner_username") or "").strip()
-    if not repo_url or not owner_username:
+    if not repo_url:
         return repo_url
-    user = next((item for item in load_users() if item.get("username") == owner_username), None)
-    if not user:
-        return repo_url
-    git_username = (user.get("git_username") or "").strip()
-    git_password = decrypt_value(user.get("git_password_encrypted") or "")
-    return apply_git_credentials_to_repo_url(repo_url, git_username, git_password)
+    users = load_users()
+    groups = load_groups()
+    owner_usernames = expand_project_owner_usernames(project, users=users, groups=groups)
+    users_by_username = {str(item.get("username") or "").strip(): item for item in users}
+    for owner_username in owner_usernames:
+        user = users_by_username.get(owner_username)
+        if not user:
+            continue
+        git_username = (user.get("git_username") or "").strip()
+        git_password = decrypt_value(user.get("git_password_encrypted") or "")
+        if git_username and git_password:
+            return apply_git_credentials_to_repo_url(repo_url, git_username, git_password)
+    return repo_url
 
 
 def get_local_repo_path(owner: str, repo: str) -> Path:
@@ -476,7 +610,17 @@ def run_git_command(cwd: Path, args: List[str], env: Optional[Dict[str, str]] = 
     if env:
         full_env.update(env)
     try:
-        result = subprocess.run(["git"] + args, cwd=str(cwd), env=full_env, capture_output=True, text=True, timeout=timeout)
+        # Force UTF-8 decoding so Windows locale (e.g. gbk) doesn't break on UTF-8 commit messages/diffs.
+        result = subprocess.run(
+            ["git"] + args,
+            cwd=str(cwd),
+            env=full_env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
     except subprocess.TimeoutExpired:
         safe_args = " ".join(redact_secret_text(arg) for arg in args)
         raise RuntimeError(f"Git command timed out after {timeout}s ({safe_args})")
@@ -940,19 +1084,6 @@ def send_email(subject: str, content: str, recipients: List[str], from_address: 
     server.quit()
 
 
-def send_sms(message: str, phones: List[str]) -> None:
-    gateway = os.environ.get("SMS_GATEWAY_URL")
-    api_key = os.environ.get("SMS_API_KEY")
-    if not gateway or not api_key or not phones:
-        return
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    for phone in phones:
-        try:
-            requests.post(gateway, json={"to": phone, "message": message}, headers=headers, timeout=15)
-        except Exception:
-            pass
-
-
 def build_report(project: Dict[str, Any], comparison: Dict[str, Any], last_sha: str, current_sha: str,
                  ai_review: Optional[str] = None) -> str:
     files = comparison.get("files", [])
@@ -965,8 +1096,9 @@ def build_report(project: Dict[str, Any], comparison: Dict[str, Any], last_sha: 
         f"Project: {project.get('name')}",
         f"Repository: {project.get('repo_url')}",
         f"Branch: {project.get('branch')}",
-        f"Previous commit: {last_sha}",
-        f"Current commit: {current_sha}",
+        f"Recorded local commit: {last_sha}",
+        f"Latest remote commit: {current_sha}",
+        "Review scope: includes all commits and file changes from the recorded local commit to the latest remote commit.",
         "",
     ]
 
@@ -1029,6 +1161,8 @@ def log_mail(recipient_list: List[str], subject: str, body: str, status: str, er
 
 
 def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token: Optional[str] = None) -> Dict[str, Any]:
+    previous_last_commit = (project_state.get("last_commit") or "").strip()
+    previous_notified_commit = (project_state.get("last_notified_commit") or "").strip()
     monitor_enabled = parse_bool(project.get("monitor_enabled", True), default=True)
     result: Dict[str, Any] = {
         "status": "unknown",
@@ -1040,6 +1174,8 @@ def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token:
         "deleted_files": 0,
         "files": {"added": [], "modified": [], "deleted": []},
         "alert_sent": False,
+        "last_commit": previous_last_commit,
+        "last_notified_commit": previous_notified_commit,
     }
 
     if not monitor_enabled:
@@ -1080,20 +1216,29 @@ def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token:
         previous_heads = project_state.get("last_branch_heads", {}) if isinstance(project_state.get("last_branch_heads", {}), dict) else {}
         current_signature = json.dumps(sorted(current_heads.items()), ensure_ascii=False)
         previous_signature = json.dumps(sorted(previous_heads.items()), ensure_ascii=False)
-        result["last_commit"] = current_signature
         result["new_commits"] = len([name for name, sha in current_heads.items() if previous_heads.get(name) != sha])
         result["added_files"] = 0
         result["modified_files"] = 0
         result["deleted_files"] = 0
         result["files"] = {"added": [], "modified": [], "deleted": []}
         if not previous_heads:
+            result["last_commit"] = current_signature
+            result["last_branch_heads"] = current_heads
             result["status"] = "baseline_initialized"
             return result
         if current_signature == previous_signature:
+            result["last_commit"] = current_signature
+            result["last_branch_heads"] = current_heads
             result["status"] = "no_changes"
             return result
         result["status"] = "changed"
         if evaluate_alert(project, result):
+            if previous_notified_commit == current_signature:
+                result["alert_skipped_duplicate"] = True
+                result["status"] = "duplicate_skipped"
+                result["last_commit"] = current_signature
+                result["last_branch_heads"] = current_heads
+                return result
             report = [
                 f"Project: {project.get('name')}",
                 f"Repository: {project.get('repo_url')}",
@@ -1109,20 +1254,19 @@ def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token:
                 recipients = [recipients]
             try:
                 send_email(subject, "\n".join(report), recipients)
-                sms_recipients = project.get("sms_recipients", [])
-                if sms_recipients:
-                    send_sms("\n".join(report), sms_recipients)
                 result["alert_sent"] = True
+                result["last_notified_commit"] = current_signature
                 log_mail(recipients, subject, "\n".join(report), "sent")
             except Exception as exc:
                 result["alert_error"] = str(exc)
                 log_mail(recipients, subject, "\n".join(report), "failed", str(exc))
         else:
             log_mail([os.environ.get("MONITOR_EMAIL_TO", DEFAULT_EMAIL_TO)], f"[Monitor Notice] {project.get('name')} all branches check completed", "No email sent because no change was detected.", "skipped")
+        result["last_commit"] = current_signature
+        result["last_branch_heads"] = current_heads
         return result
 
-    last_sha = project_state.get("last_commit")
-    result["last_commit"] = current_sha
+    last_sha = previous_last_commit
     result["new_commits"] = 0
     result["added_files"] = 0
     result["modified_files"] = 0
@@ -1131,10 +1275,12 @@ def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token:
     result["alert_sent"] = False
 
     if not last_sha:
+        result["last_commit"] = current_sha
         result["status"] = "baseline_initialized"
         return result
 
     if last_sha == current_sha:
+        result["last_commit"] = current_sha
         result["status"] = "no_changes"
         return result
 
@@ -1162,6 +1308,11 @@ def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token:
     result["status"] = "changed"
 
     if evaluate_alert(project, result):
+        if previous_notified_commit == current_sha:
+            result["alert_skipped_duplicate"] = True
+            result["status"] = "duplicate_skipped"
+            result["last_commit"] = current_sha
+            return result
         ai_review = generate_ai_git_review(project, comparison, last_sha, current_sha, owner, repo, auth_repo_url=auth_repo_url)
         report = build_report(project, comparison, last_sha, current_sha, ai_review=ai_review)
         branch_label = branch or "all branches"
@@ -1171,10 +1322,8 @@ def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token:
             recipients = [recipients]
         try:
             send_email(subject, report, recipients)
-            sms_recipients = project.get("sms_recipients", [])
-            if sms_recipients:
-                send_sms(report, sms_recipients)
             result["alert_sent"] = True
+            result["last_notified_commit"] = current_sha
             log_mail(recipients, subject, report, "sent")
         except Exception as exc:
             result["alert_error"] = str(exc)
@@ -1183,6 +1332,35 @@ def check_project(project: Dict[str, Any], project_state: Dict[str, Any], token:
         branch_label = branch or "all branches"
         log_mail([os.environ.get("MONITOR_EMAIL_TO", DEFAULT_EMAIL_TO)], f"[Monitor Notice] {project.get('name')} {branch_label} check completed", "No email sent because no change was detected.", "skipped")
 
+    result["last_commit"] = current_sha
+
+    return result
+
+
+def run_project_check_and_persist(project: Dict[str, Any], include_error: bool = True) -> Dict[str, Any]:
+    project_id = (project.get("id") or "").strip()
+    if not project_id:
+        raise RuntimeError("Project id is required")
+
+    with get_project_check_lock(project_id):
+        state = load_json(STATE_FILE, {"projects": {}, "history": []})
+        project_state = state.get("projects", {}).get(project_id, {})
+        result = check_project(project, project_state)
+        state.setdefault("projects", {})[project_id] = {**project_state, **result}
+        save_json(STATE_FILE, state)
+
+    history_payload = {
+        "status": result.get("status"),
+        "new_commits": result.get("new_commits", 0),
+        "added_files": result.get("added_files", 0),
+        "modified_files": result.get("modified_files", 0),
+        "deleted_files": result.get("deleted_files", 0),
+        "alert_sent": result.get("alert_sent", False),
+    }
+    if include_error:
+        history_payload["error"] = result.get("error")
+    append_history(make_history_entry(project_id, "check", history_payload))
+    push_event("project_update", {"project_id": project_id, "result": result})
     return result
 
 
@@ -1290,7 +1468,7 @@ def monitor_loop() -> None:
                     continue
 
                 try:
-                    result = check_project(project, project_state)
+                    result = run_project_check_and_persist(project, include_error=True)
                 except Exception as exc:
                     logger.exception(f"Monitor check failed for project {project_id}")
                     result = {
@@ -1305,18 +1483,6 @@ def monitor_loop() -> None:
                         "files": {"added": [], "modified": [], "deleted": []},
                         "alert_sent": False,
                     }
-                state.setdefault("projects", {})[project_id] = {**project_state, **result}
-                save_json(STATE_FILE, state)
-                append_history(make_history_entry(project_id, "check", {
-                    "status": result.get("status"),
-                    "error": result.get("error"),
-                    "new_commits": result.get("new_commits", 0),
-                    "added_files": result.get("added_files", 0),
-                    "modified_files": result.get("modified_files", 0),
-                    "deleted_files": result.get("deleted_files", 0),
-                    "alert_sent": result.get("alert_sent", False),
-                }))
-                push_event("project_update", {"project_id": project_id, "result": result})
                 updated = True
 
             time.sleep(5 if not updated else 2)
@@ -1393,13 +1559,13 @@ def api_login() -> Any:
         return jsonify({"error": "Account disabled"}), 403
     session.clear()
     session["username"] = user.get("username")
-    return jsonify({"user": public_user_view(user)})
+    return jsonify({"user": public_user_view(user), "csrf_token": generate_csrf()})
 
 
 @app.route("/api/auth/logout", methods=["POST"])
 def api_logout() -> Any:
     session.clear()
-    return jsonify({"status": "logged_out"})
+    return jsonify({"status": "logged_out", "csrf_token": generate_csrf()})
 
 
 @app.route("/api/auth/me", methods=["GET"])
@@ -1408,7 +1574,7 @@ def api_me() -> Any:
     if auth:
         return auth
     user = get_current_user()
-    return jsonify({"user": public_user_view(user or {})})
+    return jsonify({"user": public_user_view(user or {}), "csrf_token": generate_csrf()})
 
 
 @app.route("/api/users/me", methods=["PUT", "DELETE"])
@@ -1532,6 +1698,71 @@ def api_admin_user_detail(user_id: str) -> Any:
     return jsonify(public_user_view(user))
 
 
+@app.route("/api/admin/groups", methods=["GET", "POST"])
+@limiter.limit("20 per minute")
+def api_admin_groups() -> Any:
+    auth = require_admin()
+    if auth:
+        return auth
+    groups = load_groups()
+    users = load_users()
+    usernames = {str(user.get("username") or "").strip() for user in users}
+    if request.method == "POST":
+        payload = request.get_json() or {}
+        group_name = (payload.get("name") or "").strip()
+        if not group_name:
+            return jsonify({"error": "Group name is required"}), 400
+        if any(str(group.get("name") or "").lower() == group_name.lower() for group in groups):
+            return jsonify({"error": "Group name already exists"}), 409
+        members = [name for name in normalize_string_list(payload.get("members", [])) if name in usernames]
+        now = datetime.now(timezone.utc).isoformat()
+        group = {
+            "id": str(uuid.uuid4()),
+            "name": group_name,
+            "permissions": normalize_string_list(payload.get("permissions", [])),
+            "members": members,
+            "created_at": now,
+            "updated_at": now,
+        }
+        groups.append(group)
+        save_groups(groups)
+        return jsonify(public_group_view(group)), 201
+    return jsonify([public_group_view(group) for group in groups])
+
+
+@app.route("/api/admin/groups/<group_id>", methods=["PUT", "DELETE"])
+def api_admin_group_detail(group_id: str) -> Any:
+    auth = require_admin()
+    if auth:
+        return auth
+    groups = load_groups()
+    group = next((item for item in groups if item.get("id") == group_id), None)
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+    if request.method == "DELETE":
+        groups = [item for item in groups if item.get("id") != group_id]
+        save_groups(groups)
+        return jsonify({"status": "deleted"})
+
+    users = load_users()
+    usernames = {str(user.get("username") or "").strip() for user in users}
+    payload = request.get_json() or {}
+    new_name = (payload.get("name") or group.get("name") or "").strip()
+    if not new_name:
+        return jsonify({"error": "Group name is required"}), 400
+    if any(item.get("id") != group_id and str(item.get("name") or "").lower() == new_name.lower() for item in groups):
+        return jsonify({"error": "Group name already exists"}), 409
+
+    group["name"] = new_name
+    if "permissions" in payload:
+        group["permissions"] = normalize_string_list(payload.get("permissions", []))
+    if "members" in payload:
+        group["members"] = [name for name in normalize_string_list(payload.get("members", [])) if name in usernames]
+    group["updated_at"] = datetime.now(timezone.utc).isoformat()
+    save_groups(groups)
+    return jsonify(public_group_view(group))
+
+
 @app.route("/api/projects", methods=["GET", "POST"])
 @limiter.limit("30 per minute")
 def api_projects() -> Any:
@@ -1554,11 +1785,16 @@ def api_projects() -> Any:
         if not normalize_repo_url(project.get("repo_url", "").strip()):
             return jsonify({"error": "Invalid repository URL format"}), 400
         existing = find_project_by_id(projects, project["id"])
-        if existing and current_user.get("role") != "admin" and existing.get("owner_username") != current_user.get("username"):
+        if existing and not can_user_access_project(current_user, existing):
             return jsonify({"error": "You can only edit your own project"}), 403
         sanitized = sanitize_project(project, current_user)
+        if not (sanitized.get("owner_username") or "").strip():
+            return jsonify({"error": "Primary owner user is required"}), 400
         if existing:
-            sanitized["owner_username"] = existing.get("owner_username")
+            if current_user.get("role") != "admin":
+                sanitized["owner_username"] = existing.get("owner_username")
+                sanitized["owner_users"] = normalize_string_list(existing.get("owner_users", []))
+                sanitized["owner_groups"] = normalize_string_list(existing.get("owner_groups", []))
             sanitized["created_at"] = existing.get("created_at", sanitized["created_at"])
         projects = upsert_project(projects, sanitized)
         config["projects"] = projects
@@ -1571,6 +1807,8 @@ def api_projects() -> Any:
             "check_interval": sanitized.get("check_interval"),
             "monitor_enabled": sanitized.get("monitor_enabled"),
             "owner_username": sanitized.get("owner_username"),
+            "owner_users": sanitized.get("owner_users", []),
+            "owner_groups": sanitized.get("owner_groups", []),
         }))
         return jsonify(sanitized), 201
     return jsonify(visible_projects_for_user(projects, current_user))
@@ -1588,7 +1826,7 @@ def api_project_detail(project_id: str) -> Any:
     project = find_project_by_id(projects, project_id)
     if not project:
         return jsonify({"error": "Project not found"}), 404
-    if current_user.get("role") != "admin" and project.get("owner_username") != current_user.get("username"):
+    if not can_user_access_project(current_user, project):
         return jsonify({"error": "You can only manage your own project"}), 403
     if request.method == "DELETE":
         projects = [p for p in projects if p.get("id") != project_id]
@@ -1603,7 +1841,12 @@ def api_project_detail(project_id: str) -> Any:
     if project.get("repo_url") and not normalize_repo_url(project.get("repo_url", "").strip()):
         return jsonify({"error": "Invalid repository URL format"}), 400
     sanitized = sanitize_project(project, current_user)
-    sanitized["owner_username"] = project.get("owner_username") or current_user.get("username")
+    if not (sanitized.get("owner_username") or "").strip():
+        return jsonify({"error": "Primary owner user is required"}), 400
+    if current_user.get("role") != "admin":
+        sanitized["owner_username"] = project.get("owner_username") or current_user.get("username")
+        sanitized["owner_users"] = normalize_string_list(project.get("owner_users", []))
+        sanitized["owner_groups"] = normalize_string_list(project.get("owner_groups", []))
     sanitized["created_at"] = project.get("created_at") or project.get("createdAt") or datetime.now(timezone.utc).isoformat()
     projects = upsert_project(projects, sanitized)
     config["projects"] = projects
@@ -1616,6 +1859,8 @@ def api_project_detail(project_id: str) -> Any:
         "check_interval": sanitized.get("check_interval"),
         "monitor_enabled": sanitized.get("monitor_enabled"),
         "owner_username": sanitized.get("owner_username"),
+        "owner_users": sanitized.get("owner_users", []),
+        "owner_groups": sanitized.get("owner_groups", []),
     }))
     return jsonify(sanitized)
 
@@ -1650,6 +1895,12 @@ def api_admin_project_detail(project_id: str) -> Any:
     sanitized = sanitize_project({**project, **payload, "id": project_id}, get_current_user())
     if payload.get("owner_username"):
         sanitized["owner_username"] = payload.get("owner_username")
+    if "owner_users" in payload:
+        sanitized["owner_users"] = normalize_string_list(payload.get("owner_users", []))
+    if "owner_groups" in payload:
+        sanitized["owner_groups"] = normalize_string_list(payload.get("owner_groups", []))
+    if not (sanitized.get("owner_username") or "").strip():
+        return jsonify({"error": "Primary owner user is required"}), 400
     if payload.get("review_status") in ("pending", "approved", "rejected"):
         sanitized["review_status"] = payload.get("review_status")
     if "review_note" in payload:
@@ -1665,6 +1916,8 @@ def api_admin_project_detail(project_id: str) -> Any:
         "check_interval": sanitized.get("check_interval"),
         "monitor_enabled": sanitized.get("monitor_enabled"),
         "owner_username": sanitized.get("owner_username"),
+        "owner_users": sanitized.get("owner_users", []),
+        "owner_groups": sanitized.get("owner_groups", []),
         "review_status": sanitized.get("review_status"),
     }))
     return jsonify(sanitized)
@@ -1695,7 +1948,7 @@ def api_state_history() -> Any:
         visible_project_ids = {
             project.get("id")
             for project in config.get("projects", [])
-            if project.get("owner_username") == current_user.get("username")
+            if can_user_access_project(current_user, project)
         }
         history = [entry for entry in history if entry.get("project_id") in visible_project_ids]
     if project_id:
@@ -1742,22 +1995,9 @@ def api_check_project(project_id: str) -> Any:
     project = next((p for p in config.get("projects", []) if p.get("id") == project_id), None)
     if not project:
         return jsonify({"error": "Project not found"}), 404
-    if current_user.get("role") != "admin" and project.get("owner_username") != current_user.get("username"):
+    if not can_user_access_project(current_user, project):
         return jsonify({"error": "You can only check your own project"}), 403
-    state = load_json(STATE_FILE, {"projects": {}, "history": []})
-    project_state = state.get("projects", {}).get(project_id, {})
-    result = check_project(project, project_state)
-    state.setdefault("projects", {})[project_id] = {**project_state, **result}
-    save_json(STATE_FILE, state)
-    append_history(make_history_entry(project_id, "check", {
-        "status": result.get("status"),
-        "new_commits": result.get("new_commits"),
-        "added_files": result.get("added_files"),
-        "modified_files": result.get("modified_files"),
-        "deleted_files": result.get("deleted_files"),
-        "alert_sent": result.get("alert_sent"),
-    }))
-    push_event("project_update", {"project_id": project_id, "result": result})
+    result = run_project_check_and_persist(project, include_error=False)
     return jsonify(result)
 
 
